@@ -61,7 +61,7 @@ Read when changing:
 * MRUK color frame, intrinsics, or metadata parsing
 * color reader dispatch between legacy Camera2 and MRUK
 
-Related tests: `tests/test_recording_format_detection.py`, `tests/test_mruk_color_dataset.py`.
+Related tests: `tests/test_recording_format_detection.py`, `tests/test_mruk_color_dataset.py`, `tests/test_mruk_jpeg_frames.py`.
 
 ## `DATASETS_AND_CACHE.md`
 
@@ -162,6 +162,19 @@ Read when changing:
 * stereo optional dependency boundaries
 
 Related tests: `tests/test_foundation_stereo_workflow.py`, `tests/test_packaging_metadata.py`, `tests/test_public_api_imports.py`.
+
+## `LIVE_STREAMING.md`
+
+Navigation for the Quest-to-laptop live streaming protocol and session recording.
+
+Read when changing:
+
+* wire framing, message types, or payload encodings
+* receiver connection, timeout, or replacement behavior
+* endpoint resolution (endpoint file, adb reverse, UDP discovery)
+* laptop session recording or replay
+
+Related tests: `tests/test_live_streaming_protocol.py`, `tests/test_live_streaming_end_to_end.py`.
 
 ## `LOGGING_AND_ERRORS.md`
 
