@@ -163,3 +163,108 @@ def setup_adb_connection(
         pushed = bool(push and host and push_endpoint(adb, serial, host, tcp_port, package))
         setups.append(AdbDeviceSetup(serial=serial, reverse_ok=reverse, device_ip=ip, endpoint_host=host, endpoint_pushed=pushed))
     return adb, setups
+
+
+class AdbReverseKeeper:
+    """Keep ``adb reverse`` forwards (and wireless adb) alive while a local server runs.
+
+    A sleeping Quest drops off wireless adb, its ``adb reverse`` forwards go with it, and it does not
+    reconnect on its own when it wakes: ``http://localhost:8080`` in the Quest browser then stops working.
+    Every ``interval_s`` this reconnects wireless headsets seen earlier (``adb connect``, at most every
+    ``reconnect_interval_s``) and re-applies missing forwards. Runs in a daemon thread and never raises.
+    ``runner(args) -> (returncode, stdout)`` is injectable for tests.
+    """
+
+    def __init__(
+        self,
+        ports: list[int],
+        *,
+        adb_path: Path | None = None,
+        interval_s: float = 5.0,
+        reconnect_interval_s: float = 15.0,
+        on_change=None,
+        runner=None,
+        clock=None,
+    ):
+        import time
+
+        self.ports = list(ports)
+        self.interval_s = interval_s
+        self.reconnect_interval_s = reconnect_interval_s
+        self.on_change = on_change or (lambda text: logger.info(text))
+        self._adb = find_adb(adb_path)
+        self._runner = runner or self._subprocess_runner
+        self._clock = clock or time.monotonic
+        self._wireless: set[str] = set()
+        self._last_connect: dict[str, float] = {}
+        self._stop = None
+        self._thread = None
+
+    def _subprocess_runner(self, args: list[str]) -> tuple[int, str]:
+        if self._adb is None:
+            return 1, ""
+        try:
+            result = subprocess.run([str(self._adb), *args], capture_output=True, text=True, timeout=8)
+            return result.returncode, result.stdout
+        except (OSError, subprocess.SubprocessError):
+            return 1, ""
+
+    def tick(self) -> list[str]:
+        """One pass; returns what changed (also passed to ``on_change``)."""
+        changes: list[str] = []
+        code, out = self._runner(["devices"])
+        if code != 0:
+            return changes
+        states = {}
+        for line in out.splitlines()[1:]:
+            parts = line.split()
+            if len(parts) >= 2:
+                states[parts[0]] = parts[1]
+        ready = [serial for serial, state in states.items() if state == "device"]
+        self._wireless.update(serial for serial in ready if re.fullmatch(r"[\d.]+:\d+", serial))
+        now = self._clock()
+        for serial in sorted(self._wireless - set(ready)):
+            if now - self._last_connect.get(serial, -1e9) < self.reconnect_interval_s:
+                continue
+            self._last_connect[serial] = now
+            if states.get(serial) == "offline":  # stale entry: "adb connect" alone says "already connected"
+                self._runner(["disconnect", serial])
+            code, out = self._runner(["connect", serial])
+            if code == 0 and "connected to" in out:
+                changes.append(f"headset {serial} reconnected")
+                ready.append(serial)
+        for serial in ready:
+            code, out = self._runner(["-s", serial, "reverse", "--list"])
+            if code != 0:
+                continue
+            for port in self.ports:
+                if f"tcp:{port} tcp:{port}" in out:
+                    continue
+                code, _ = self._runner(["-s", serial, "reverse", f"tcp:{port}", f"tcp:{port}"])
+                if code == 0:
+                    changes.append(f"headset {serial}: adb reverse tcp:{port} restored")
+        for change in changes:
+            self.on_change(change)
+        return changes
+
+    def start(self) -> "AdbReverseKeeper":
+        import threading
+
+        if self._thread is not None:
+            return self
+        self._stop = threading.Event()
+
+        def loop() -> None:
+            while not self._stop.wait(self.interval_s):
+                try:
+                    self.tick()
+                except Exception as error:  # never take the server down
+                    logger.debug("adb keeper pass failed: %s", error)
+
+        self._thread = threading.Thread(target=loop, name="mq3drecon-adb-keeper", daemon=True)
+        self._thread.start()
+        return self
+
+    def stop(self) -> None:
+        if self._stop is not None:
+            self._stop.set()

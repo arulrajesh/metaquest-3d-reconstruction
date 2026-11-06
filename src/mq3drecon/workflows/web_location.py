@@ -84,16 +84,23 @@ def run_serve_locations(
     server = make_server(locations_dir, port=port)
     serve_forever_in_thread(server)
     print(f"[serve] http://localhost:{port}/  (locations: {locations_dir})")
+    keeper = None
     if adb:
+        from mq3drecon.streaming.adb import AdbReverseKeeper
+
         serials = adb_reverse_and_open(port, adb_path=adb_path, open_browser=open_headset)
         print(f"[serve] headset: adb reverse tcp:{port} on {serials or 'no device'}"
               + ("; opened the headset browser" if open_headset and serials else "; open http://localhost:%d in the Quest browser" % port))
+        # A sleeping Quest drops wireless adb and the forward with it; restore both when it wakes.
+        keeper = AdbReverseKeeper([port], adb_path=adb_path, on_change=lambda text: print(f"[serve] {text}", flush=True)).start()
     try:
         while True:
             time.sleep(1.0)
     except KeyboardInterrupt:
         pass
     finally:
+        if keeper is not None:
+            keeper.stop()
         server.shutdown()
 
 
