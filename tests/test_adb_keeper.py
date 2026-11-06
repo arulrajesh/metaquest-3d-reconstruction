@@ -60,6 +60,17 @@ def test_sleeping_headset_is_reconnected_and_forward_restored_on_wake():
     assert fake.state == "device" and fake.reverse == {8080}
 
 
+def test_remembered_headset_is_reconnected_after_a_restart(tmp_path):
+    remember = tmp_path / "headsets.json"
+    fake, now = FakeAdb(), [0.0]
+    AdbReverseKeeper([8080], runner=fake, clock=lambda: now[0], on_change=lambda t: None, remember_file=remember).tick()
+    assert SERIAL in remember.read_text()
+    # A new server process starts while the headset is asleep (gone from adb), then it wakes.
+    fake.state, fake.reverse = None, set()
+    keeper = AdbReverseKeeper([8080], runner=fake, clock=lambda: now[0], on_change=lambda t: None, remember_file=remember)
+    assert keeper.tick() == [f"headset {SERIAL} reconnected", f"headset {SERIAL}: adb reverse tcp:8080 restored"]
+
+
 def test_offline_entry_is_disconnected_before_reconnecting():
     fake, now = FakeAdb(), [0.0]
     keeper = make(fake, now)

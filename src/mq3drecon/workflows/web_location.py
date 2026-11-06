@@ -92,7 +92,12 @@ def run_serve_locations(
         print(f"[serve] headset: adb reverse tcp:{port} on {serials or 'no device'}"
               + ("; opened the headset browser" if open_headset and serials else "; open http://localhost:%d in the Quest browser" % port))
         # A sleeping Quest drops wireless adb and the forward with it; restore both when it wakes.
-        keeper = AdbReverseKeeper([port], adb_path=adb_path, on_change=lambda text: print(f"[serve] {text}", flush=True)).start()
+        keeper = AdbReverseKeeper(
+            [port], adb_path=adb_path, on_change=lambda text: print(f"[serve] {text}", flush=True),
+            remember_file=locations_dir.parent / "headsets.json",  # reconnect a headset that is asleep at startup
+        )
+        keeper.tick()  # right away: a headset already offline at startup is reconnected now, not in 5 s
+        keeper.start()
     try:
         while True:
             time.sleep(1.0)

@@ -185,9 +185,11 @@ class AdbReverseKeeper:
         on_change=None,
         runner=None,
         clock=None,
+        remember_file: Path | None = None,
     ):
         import time
 
+        self.remember_file = Path(remember_file) if remember_file is not None else None
         self.ports = list(ports)
         self.interval_s = interval_s
         self.reconnect_interval_s = reconnect_interval_s
@@ -195,10 +197,33 @@ class AdbReverseKeeper:
         self._adb = find_adb(adb_path)
         self._runner = runner or self._subprocess_runner
         self._clock = clock or time.monotonic
-        self._wireless: set[str] = set()
+        self._wireless: set[str] = set(self._load_remembered())
         self._last_connect: dict[str, float] = {}
         self._stop = None
         self._thread = None
+
+    def _load_remembered(self) -> list[str]:
+        """Wireless serials from earlier runs, so a headset asleep at startup is still reconnected."""
+        import json
+
+        if self.remember_file is None or not self.remember_file.exists():
+            return []
+        try:
+            serials = json.loads(self.remember_file.read_text(encoding="utf-8")).get("wireless_serials", [])
+            return [s for s in serials if isinstance(s, str) and re.fullmatch(r"[\d.]+:\d+", s)]
+        except (OSError, ValueError, AttributeError):
+            return []
+
+    def _save_remembered(self) -> None:
+        import json
+
+        if self.remember_file is None:
+            return
+        try:
+            self.remember_file.parent.mkdir(parents=True, exist_ok=True)
+            self.remember_file.write_text(json.dumps({"wireless_serials": sorted(self._wireless)}, indent=1), encoding="utf-8")
+        except OSError:
+            pass
 
     def _subprocess_runner(self, args: list[str]) -> tuple[int, str]:
         if self._adb is None:
@@ -221,7 +246,10 @@ class AdbReverseKeeper:
             if len(parts) >= 2:
                 states[parts[0]] = parts[1]
         ready = [serial for serial, state in states.items() if state == "device"]
+        before = set(self._wireless)
         self._wireless.update(serial for serial in ready if re.fullmatch(r"[\d.]+:\d+", serial))
+        if self._wireless != before:
+            self._save_remembered()
         now = self._clock()
         for serial in sorted(self._wireless - set(ready)):
             if now - self._last_connect.get(serial, -1e9) < self.reconnect_interval_s:
