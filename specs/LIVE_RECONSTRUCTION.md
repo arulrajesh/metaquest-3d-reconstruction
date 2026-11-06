@@ -67,14 +67,38 @@ Live integration must reuse the offline pipeline's interpretation of recordings:
 
 ---
 
-# GPU TSDF Volume
+# GPU TSDF Volume (Kalman)
 
-* **Allocation.** The volume is dense, allocated at the first valid depth frame of a segment. It is centered on the camera position plus `(0, vertical_offset_m, 0)`, with size `extent_m` and voxel size `voxel_size_m`. Truncation is `trunc_voxels * voxel_size_m`.
-* **Device.** It runs on `device`, default `cuda:0`. When CUDA is unavailable it must fall back to the CPU and produce identical results.
-* **Integration** is projective and per voxel. The TSDF and weight are updated wherever `sdf >= -trunc`. Color is updated only where `|sdf| <= trunc`, by projecting the voxel into the color camera. Weights are capped at `max_weight`.
-* **Mesh extraction** is marching cubes at the zero level. Triangles with a vertex on a grid edge whose endpoints are not both observed at `min_weight` or more are removed; this suppresses spurious surfaces against unobserved space. Vertices without a color observation get gray (0.6) and `color_valid = False`.
+The volume is dense: it covers `extent_m` around the camera position plus
+`(0, vertical_offset_m, 0)`, is allocated at the first valid depth frame of a
+segment, and runs on `device` (default `cuda:0`). It must fall back to the CPU,
+with identical results, when CUDA is unavailable. Truncation is
+`trunc_voxels * voxel_size_m`, and TSDF values are normalized by it.
 
----
+**Each voxel is a 1-D Kalman filter** over its truncated signed distance, with
+mean `tsdf`, information `info` (inverse variance; 0 = unobserved), and a
+running outlier rate. A depth reading projects onto the voxel and gives
+`obs = min(1, sdf / trunc)`. Readings with `sdf < -trunc` are ignored.
+
+| Step | Rule |
+| --- | --- |
+| Measurement noise | `sigma(z) = sigma0 + k·z²` (defaults 4 mm and 3 mm/m²), multiplied by `edge_inflation` (10) where the depth gradient exceeds `edge_ratio · z` (0.05) or a neighbor is invalid (flying pixels). Normalized variance `r = (sigma / trunc)²`. |
+| Process noise | Before each update, `info ← 1 / (1/info + q)`, with `q = 1e-5`. |
+| Innovation gate | Applies to near-surface readings (`obs < 1`) of confident voxels (posterior sigma ≤ `confident_sigma_m`, 2 cm). The reading is rejected when `(obs − tsdf)² > gate_sigma² · (1/info + r)` (`gate_sigma` = 3), and the outlier rate is updated as `rate ← 0.9·rate + 0.1`. Accepted readings decay it: `rate ← 0.9·rate`. |
+| Re-initialization | When the rate reaches `reinit_outlier_rate` (0.6), the voxel restarts from the current reading. This handles persistent change. |
+| Update | `tsdf ← (tsdf·info + obs/r) / (info + 1/r)`, then `info ← min(info + 1/r, max_info)`. |
+| Color | Only where `\|sdf\| ≤ trunc`: an information-weighted mean (weight `1/r`) of the color sampled by projecting the voxel into the color camera. |
+| Frame score | `integrate` returns the near-surface information gain (Σ prior variance − posterior variance; an unobserved voxel's prior variance is 1), the counts of updated, new, and rejected voxels, and `novelty` = gain / updated voxels. |
+
+Free-space readings (`obs = 1`) are never gated, so space that becomes empty
+(a person walks away) is carved out. A surface that moves *closer* hides the old
+one, which then remains; this is inherent to projective TSDFs.
+
+**Mesh extraction** is marching cubes at the zero level. A vertex lies on one
+grid edge and is kept only when both edge voxels have posterior sigma at most
+`max_sigma_m` (default half a voxel) and an outlier rate of at most 0.3. These
+are the points worth keeping. Each vertex reports its posterior sigma. Vertices
+without color are gray (0.6) with `color_valid = False`.
 
 # Operator Exclusion
 
@@ -119,6 +143,8 @@ Closing it ends the command.
 The YAML `live:` section mirrors `LiveConfig`: `server`, `volume`,
 `integration`, `preview`, and `build`. Unknown keys are an error. `mode`
 selects a preset before overrides are applied:
+
+`preview.max_sigma_voxels` (default 0.5) sets the live mesh's `max_sigma_m` as a fraction of the voxel size.
 
 | Preset | `voxel_size_m` | `extent_m` | `vertical_offset_m` |
 | --- | --- | --- | --- |

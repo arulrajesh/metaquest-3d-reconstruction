@@ -31,7 +31,6 @@ class LiveVolumeConfig:
     extent_m: tuple[float, float, float] = (12.0, 5.0, 12.0)
     vertical_offset_m: float = -0.3
     trunc_voxels: float = 4.0
-    max_weight: float = 64.0
 
 
 @dataclass(frozen=True)
@@ -51,7 +50,8 @@ class LiveIntegrationConfig:
 class LivePreviewConfig:
     viewer: bool = True
     mesh_interval_s: float = 1.0
-    min_weight: float = 2.0
+    max_sigma_voxels: float = 0.5
+    """Keep surface points whose Kalman posterior std-dev is at most this fraction of a voxel."""
 
 
 @dataclass(frozen=True)

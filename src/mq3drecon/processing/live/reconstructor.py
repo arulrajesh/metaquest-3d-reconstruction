@@ -189,7 +189,7 @@ class LiveReconstructor:
 
     def _start_new_segment(self) -> None:
         if self._volume is not None and self._volume.frames_integrated:
-            mesh = self._volume.extract_mesh(min_weight=self.config.preview.min_weight)
+            mesh = self._volume.extract_mesh(max_sigma_m=self._max_sigma_m())
             if len(mesh.triangles):
                 self._segments.append(mesh)
         logger.warning("Tracking jump detected: starting live segment %d", len(self._segments) + 1)
@@ -201,11 +201,14 @@ class LiveReconstructor:
         if self._volume is None:
             vol = self.config.volume
             center = depth.view.position + np.array([0.0, vol.vertical_offset_m, 0.0])
-            spec = VolumeSpec.around(center, vol.extent_m, vol.voxel_size_m, vol.voxel_size_m * vol.trunc_voxels, vol.max_weight)
+            spec = VolumeSpec.around(center, vol.extent_m, vol.voxel_size_m, vol.voxel_size_m * vol.trunc_voxels)
             self._volume = GpuTsdfVolume(spec, device=vol.device)
             self._stats = replace(self._stats, volume_dims=spec.dims)
             logger.info("Allocated live volume %s at %.0f cm on %s", spec.dims, vol.voxel_size_m * 100, self._volume.device)
         return self._volume
+
+    def _max_sigma_m(self) -> float:
+        return self.config.preview.max_sigma_voxels * self.config.volume.voxel_size_m
 
     def _maybe_publish(self) -> None:
         if not self._dirty or time.monotonic() - self._last_mesh_time < self.config.preview.mesh_interval_s:
@@ -216,7 +219,7 @@ class LiveReconstructor:
 
     def _publish_snapshot_locked(self) -> None:
         assert self._volume is not None
-        mesh = self._volume.extract_mesh(min_weight=self.config.preview.min_weight)
+        mesh = self._volume.extract_mesh(max_sigma_m=self._max_sigma_m())
         self._sequence += 1
         self._dirty = False
         self._last_mesh_time = time.monotonic()

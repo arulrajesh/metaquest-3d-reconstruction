@@ -35,7 +35,7 @@ def test_live_capture_records_and_reconstructs_a_streamed_session(tmp_path):
         server=replace(config.server, port=0, discovery=False, adb=False),
         volume=replace(config.volume, extent_m=(6.0, 4.0, 6.0)),
         integration=replace(config.integration, queue_size=64),
-        preview=replace(config.preview, viewer=False, mesh_interval_s=0.2, min_weight=1.0),
+        preview=replace(config.preview, viewer=False, mesh_interval_s=0.2),
     )
     stop, done, ports = threading.Event(), threading.Event(), []
     listening = threading.Event()
