@@ -30,8 +30,13 @@ reconstruction = [
 stereo = [
     "onnxruntime",
 ]
+live = [
+    "open3d==0.19.0",
+    "warp-lang>=1.19",
+]
 full = [
     "open3d==0.19.0",
+    "warp-lang>=1.19",
     "onnxruntime",
     "matplotlib",
     "requests",

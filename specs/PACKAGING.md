@@ -45,9 +45,10 @@ The package should define extras with the following responsibilities:
 | `convert` | Dependencies needed by color and depth conversion workflows. |
 | `reconstruction` | Dependencies needed by reconstruction workflows and Open3D-backed reconstruction data operations. |
 | `stereo` | Dependencies needed by ONNX-backed stereo depth generation workflows. |
+| `live` | Dependencies needed by live streaming reconstruction: Open3D (viewer and mesh I/O) and NVIDIA Warp (GPU TSDF and marching cubes, with a CPU fallback). The `mq3drecon.streaming` protocol package itself needs no extra. |
 | `full` | All supported optional runtime dependencies for the complete toolkit. |
 
-`full` must include the dependencies required by `reconstruction` and `stereo`.
+`full` must include the dependencies required by `reconstruction`, `stereo`, and `live`.
 
 When an extra name overlaps with dependencies already included by the default lightweight profile, the extra may be retained as an explicit stable installation target even if it adds no new dependencies.
 
