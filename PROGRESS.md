@@ -31,15 +31,21 @@ Last updated: 2026-11-06
     - inconsistent winding after quadric decimation (the fused mesh is orientable, the decimated one isn't): BFS `orient_consistently`;
     - a mirrored two-triangle "pillow" (same vertex set, opposite winding) that passes Open3D's checks but fails UVAtlas: `same_vertex_set_mask`.
     - UVAtlas can also *crash the process* (access violation) on degenerate input. Never feed it uncleaned meshes, even in tests.
+  - **Root cause of the poor look: MRUK color intrinsics were in sensor pixels (fixed, `302d26d`).** MRUK's `focalLength` and `principalPoint` refer to the 1728² sensor; frames are 1280². The code scaled from `resolution`, so the focal length was 35% too long and the principal point ~225 px off. It affected vertex colors, the texture bake, splats, compaction blur, and the upstream offline loader. The fix is `dataio/mruk_intrinsics.image_pinhole` (Meta's crop-and-scale mapping).
+    - Splat PSNR on this session (train/holdout): **23.9/21.6 → 32.2/30.1 dB**.
+    - The exported `.splat` (DC color only) at never-trained views scores 24–33 dB. Side-by-sides: scratchpad `uvdebug/holdout_v2.jpg`.
+    - It now looks close to photoreal for the curtain, wardrobe and desk. Weaknesses: soft close-up detail (clothes) and smeared near-camera objects.
+    - Ruled out on the way: stereo calibration (constant 6.38 cm baseline, each eye alone equally bad) and pose/exposure (`pose_opt`/`exposure_opt` gave +0.3/+0.45 dB, now opt-in).
+    - The raw principal point was re-confirmed under the correct scaling (mirrored: −1.35 dB).
   - **Locations:**
-    - `20261106_175535_2`: vertex colors (fallback) plus splats.
-    - `recapture-2026-11-06-textured`: the textured rebuild.
-  - **Quality vs the user's photoreal bar: not there yet.**
-    - The geometry is room-shaped: walls, ceiling, corners and a doorway.
-    - The splats (705k) are smeared with floaters: train PSNR 23.7, holdout 21.8 (synthetic: 36).
-    - Low *train* PSNR means the views disagree: likely pose error for the passthrough cameras, auto-exposure, and blur.
-    - Next: per-view pose and exposure optimization in `splat_train.py`, added as options (`pose_opt`, `exposure_opt`) and A/B-tested on this session (`scratchpad uvdebug/splat_ab.py`).
-    - Also: compaction keeps about 1 color frame/s, tuned for TSDF. Consider keeping more sharp color frames for splats.
+    - **`recapture-2026-11-06`** (current, correct intrinsics): textured mesh (80% textured, 4096²) and 907k splats.
+    - Superseded, kept until the user deletes them: `20261106_175535_2` (vertex colors) and `recapture-2026-11-06-textured` (wrong intrinsics).
+  - **Next quality steps:**
+    - SH in the export: `.splat` drops view-dependent color. SPZ or `.ply` would keep it.
+    - More color keyframes for splats: compaction keeps ~1/s, tuned for TSDF.
+    - Longer training: 7k iterations now, 30k is typical.
+    - Fill grey (unseen) texture regions.
+    - Floor holes.
 - The first stock-app capture (`20261106_120328`) was rejected ("garbage") and deleted. The user deleted all old stock-app recordings from the headset (2026-11-06), freeing 15 GB.
 - **The streaming APK builds (2026-11-06, fork `fb37a71`).** `Builds/QuestRealityCapture-live.apk` is 64 MB and installs as `com.arulrajesh.QuestRealityCaptureLive` ("QuestRealityCapture Live"). A first build takes about 15 min; later builds take about 3–8. `Tools/watch_build.ps1` shows a live progress bar. Issues found on the first real build:
   - Our only compile error: `Camera.main` resolved to the `RealityLog.Camera` namespace (fixed).
