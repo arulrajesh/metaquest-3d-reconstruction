@@ -101,6 +101,17 @@ Last updated: 2026-11-06
       1. View-dependent color (SH) is worth ~3 dB, and our `.splat` export drops it.
       2. Spirula's trainer (MCMC/IGS+/MRNF densification + PPISP/bilateral-grid exposure) beats ours.
     - **Test location `recapture-2026-11-07-spirula`**: Spirula's PLY (248 MB) served as `scene.ply`; Spark loads it with SH. **The user should compare it in the headset** against `recapture-2026-11-07`.
+    - **Correction: the first comparison was unfair.** It set Spirula with SH against our DC-only export. Our exports now keep SH: `scene.ply` SH3 plus a `scene.splat` DC fallback (`b6da869`).
+      - **Fair native-res held-out comparison** (70 views; `uvdebug/compare_splats.py`, images `uvdebug/compare_fair.jpg`):
+
+        | Model | Holdout PSNR | Fine detail |
+        | --- | --- | --- |
+        | ours DC | 27.05 | 14% |
+        | **ours SH3** | **31.31** | 23% |
+        | Spirula SH3 | 29.87 | **36%** |
+
+      - Visually, ours with SH3 loses the DC export's doubled edges and matches photo brightness, but is a bit soft. Spirula is crispest (printer, chair mesh, table texture) with slightly flatter, exposure-neutral brightness.
+      - **Both are in the gallery for the user to judge in the headset:** `recapture-2026-11-07-ours-sh3` (181 MB PLY) and `recapture-2026-11-07-spirula` (248 MB PLY).
     - **Done: Spirula is an optional splat backend (`c49b4de`).**
       - Use `build-location --splat-backend spirula --spirula <exe>` or `live --splat-backend spirula`.
       - It falls back to gsplat if the binary is missing or fails, writes `scene.ply` (SH3), and scores held-out views with gsplat.
