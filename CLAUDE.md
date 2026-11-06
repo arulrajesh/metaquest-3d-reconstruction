@@ -54,5 +54,5 @@ This fork extends MQ3DRecon with **live streaming reconstruction** (Quest 3 → 
 | Wire protocol | `src/mq3drecon/streaming/` (framing, messages, payloads); spec in `specs/LIVE_STREAMING.md` |
 | Ports | TCP 9870 for frames; UDP 9871 for discovery (`MQLS?` probe); HTTP 8080 for the local site |
 | Endpoint file pushed to headset | `/sdcard/Android/data/com.t34400.QuestRealityCapture/files/live_stream_endpoint.json` |
-| Pixel conventions | Mirror the offline pipeline: Quest depth and MRUK color intrinsics use `cx → width - cx` (`utils/depth_utils.mirror_principal_point_x`); poses go Unity → Open3D with `Transforms.convert_coordinate_system(OPEN3D, is_camera=True)`; `.rgba` frames are bottom-up, `.jpg` frames are top-down |
+| Pixel conventions | Quest **depth** intrinsics use `cx → width - cx` (`utils/depth_utils.mirror_principal_point_x`), as the offline pipeline does. MRUK **color** intrinsics use the **raw** principal point: the offline pipeline's mirroring is wrong for MRUK color (real-data test, 2026-11-06). Poses go Unity → Open3D with `Transforms.convert_coordinate_system(OPEN3D, is_camera=True)`. `.rgba` frames are bottom-up, `.jpg` frames are top-down. |
 | Synthetic test data | The synthetic room capture generator inverts those conventions; use it instead of headset data in tests |

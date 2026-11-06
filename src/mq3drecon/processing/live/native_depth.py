@@ -1,9 +1,14 @@
 """Per-frame conversion of streamed Quest depth and color into integration inputs.
 
-Uses exactly the offline pipeline's helpers so live and offline results agree:
-``convert_depth_to_linear`` and ``compute_depth_camera_params`` for depth,
-``mirror_principal_point_x`` for Open3D-convention intrinsics, and
-``Transforms.convert_coordinate_system(OPEN3D, is_camera=True)`` for poses.
+Uses the offline pipeline's helpers for depth (``convert_depth_to_linear``,
+``compute_depth_camera_params`` with ``mirror_principal_point_x``) and poses
+(``Transforms.convert_coordinate_system(OPEN3D, is_camera=True)``).
+
+MRUK *color* intrinsics deliberately use the raw principal point, without the
+mirroring the offline pipeline applies. A held-out-camera photometric test on
+real Quest 3 data (2026-11-06) showed the raw value is consistent between the
+left and right cameras, while the mirrored one misregisters color by about 6–8 px
+(see ``specs/LIVE_RECONSTRUCTION.md``).
 Lightweight: numpy only.
 """
 
@@ -77,7 +82,10 @@ def depth_intrinsic(frame: DepthFrame) -> np.ndarray:
 
 
 def color_intrinsic(intrinsics: dict[str, Any], width: int, height: int) -> np.ndarray:
-    """MRUK intrinsics JSON object to an Open3D-convention matrix, scaled if the streamed frame is resized."""
+    """MRUK intrinsics JSON to a pinhole matrix for the top-down image, scaled if the streamed frame is resized.
+
+    The principal point is used as reported by MRUK (not mirrored).
+    """
     resolution = intrinsics.get("resolution", {})
     sx = width / float(resolution.get("width", width) or width)
     sy = height / float(resolution.get("height", height) or height)
@@ -85,7 +93,7 @@ def color_intrinsic(intrinsics: dict[str, Any], width: int, height: int) -> np.n
     fy = float(intrinsics["focalLength"]["y"]) * sy
     cx = float(intrinsics["principalPoint"]["x"]) * sx
     cy = float(intrinsics["principalPoint"]["y"]) * sy
-    return _intrinsic(fx, fy, mirror_principal_point_x(cx, width), cy)
+    return _intrinsic(fx, fy, cx, cy)
 
 
 def depth_to_metric(frame: DepthFrame, *, depth_min_m: float, depth_max_m: float) -> MetricDepth | None:

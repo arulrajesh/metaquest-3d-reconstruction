@@ -74,6 +74,8 @@ Last updated: 2026-11-06
 
 ## Known issues and risks
 
+- **Upstream offline pipeline (not changed here):** `compute_o3d_intrinsic_matrices` mirrors the principal point x for MRUK color datasets too. Real data shows that misregisters color by about 6–8 px; raw MRUK principal points are correct. The live and build paths use raw values. Candidate upstream issue/PR.
+
 - Whether MRUK JPEGs come out upright is unverified on a device. Unity's `EncodeNativeArrayToJPG` is expected to write an upright image from a bottom-up buffer, so the headset sends `row_order: "top_down"`. Check this with the first real stream.
 - Getting the headset's IP over wireless adb: serials can be `ip:port` or mDNS names. Fall back to `adb shell ip -f inet addr show wlan0`.
 - Windows Firewall will prompt the first time Python listens on TCP 9870 or UDP 9871. Allow it on private networks.

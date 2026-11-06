@@ -5,9 +5,9 @@ interpret real recordings:
 
 * poses are Unity camera-to-world and converted with
   ``Transforms.convert_coordinate_system(OPEN3D, is_camera=True)``;
-* Quest depth intrinsics come from ``compute_depth_camera_params`` and MRUK
-  color intrinsics from the intrinsics JSON, both with the principal point x
-  mirrored (``mirror_principal_point_x``) for Open3D;
+* Quest depth intrinsics come from ``compute_depth_camera_params`` with the
+  principal point x mirrored (``mirror_principal_point_x``); MRUK color
+  intrinsics use the JSON principal point as is (validated on real data);
 * depth is stored as raw NDC float32 rows exactly as ``DepthDataIO`` reads them;
 * ``.rgba`` color is stored bottom-up, ``.jpg`` top-down.
 
@@ -128,7 +128,7 @@ def render(position_u: np.ndarray, rotation_u: np.ndarray, k_open3d: np.ndarray,
 def _color_intrinsics(size: int) -> tuple[dict, np.ndarray]:
     fx = fy = 0.5 * size / np.tan(np.deg2rad(40.0))
     cx_o3d, cy = 0.52 * size, 0.47 * size
-    cx_json = mirror_principal_point_x(cx_o3d, size)  # the JSON stores the un-mirrored value
+    cx_json = cx_o3d  # MRUK principal points are used as reported (no mirroring)
     k = np.array([[fx, 0, cx_o3d], [0, fy, cy], [0, 0, 1]])
     obj = {
         "backend": "MRUK",
