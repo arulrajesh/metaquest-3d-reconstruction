@@ -61,7 +61,13 @@ Live integration must reuse the offline pipeline's interpretation of recordings:
 
 * **Depth:** NDC depth goes through `utils.depth_utils.convert_depth_to_linear`. A buffer failing `is_ndc_depth_map_valid` is skipped. Pixels outside `[depth_min_m, depth_max_m]` become invalid (0).
 * **Depth intrinsics:** `compute_depth_camera_params`, with the principal point x mirrored by `mirror_principal_point_x`.
-* **Color intrinsics:** from the session's MRUK intrinsics, scaled when the streamed frame size differs from `resolution`. The principal point is used **as reported, not mirrored**. A held-out-camera test on real Quest 3 data (2026-11-06) settled this: colors baked from the left camera matched the right camera's images 12% better with raw principal points on both cameras than with the offline pipeline's mirrored ones. Shifting both principal points together changed the error by only about 1%.
+* **Color intrinsics:** from the session's MRUK intrinsics, through `dataio/mruk_intrinsics.image_pinhole`.
+  * MRUK's `focalLength` and `principalPoint` are in **sensor pixels** (`sensorResolution`, 1728×1728 on Quest 3).
+  * A delivered frame (`resolution`, e.g. 1280×1280) is the sensor image center-cropped to the frame's aspect ratio and then scaled uniformly (Meta's `PassthroughCameraUtils` mapping).
+  * Files without `sensorResolution` are taken to be in image pixels.
+  * Until 2026-11-06 the values were scaled from `resolution`, which gave a focal length 35% too long and a principal point about 225 px off. Fixing it raised splat PSNR on a real capture from 22.5 to 28.6 dB.
+
+  The principal point is used **as reported, not mirrored**. It was re-confirmed after the fix: raw gives 28.6 dB, mirrored 27.2 dB. A held-out-camera test on real Quest 3 data (2026-11-06) settled this: colors baked from the left camera matched the right camera's images 12% better with raw principal points on both cameras than with the offline pipeline's mirrored ones. Shifting both principal points together changed the error by only about 1%.
 * **Poses:** Unity camera-to-world converted with `Transforms.convert_coordinate_system(OPEN3D, is_camera=True)`.
 * **Color matching:** each depth frame uses the nearest color frame of the same side within `color_tolerance_ms`. Without one, geometry is still integrated without color.
 
