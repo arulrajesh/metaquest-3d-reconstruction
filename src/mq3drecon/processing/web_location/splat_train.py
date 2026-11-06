@@ -28,6 +28,12 @@ class SplatSettings:
     sh_degree: int = 3
     holdout_every: int = 8
     seed: int = 0
+    # Real captures: headset poses are a little off for the passthrough cameras, and auto-exposure
+    # changes between frames. Both make views disagree, which shows up as blur and floaters.
+    pose_opt: bool = False  # learn a small SE(3) correction per training view
+    pose_opt_lr: float = 5e-5
+    exposure_opt: bool = False  # learn a per-view RGB gain and bias applied to the render
+    exposure_opt_lr: float = 1e-3
 
 
 @dataclass(frozen=True)
@@ -133,14 +139,43 @@ def train_splats(
     strategy.check_sanity(params, optimizers)
     state = strategy.initialize_state(scene_scale=scene_scale)
 
-    def render(index: int, sh_degree: int):
+    # Per-view corrections, outside the Gaussian ParameterDict (the densification strategy must not see them).
+    n_views = len(views)
+    pose_delta = torch.zeros((n_views, 6), dtype=torch.float32, device=device, requires_grad=True)  # axis-angle, translation
+    exposure = torch.zeros((n_views, 6), dtype=torch.float32, device=device, requires_grad=True)  # RGB gain-1, RGB bias
+    extra_optimizers = []
+    if settings.pose_opt:
+        extra_optimizers.append(torch.optim.Adam([pose_delta], lr=settings.pose_opt_lr))
+    if settings.exposure_opt:
+        extra_optimizers.append(torch.optim.Adam([exposure], lr=settings.exposure_opt_lr))
+
+    def corrected_viewmat(index: int):
+        viewmat = viewmats_t[index]
+        if not settings.pose_opt:
+            return viewmat
+        omega, translation = pose_delta[index, :3], pose_delta[index, 3:]
+        skew = torch.zeros((3, 3), dtype=viewmat.dtype, device=viewmat.device)
+        skew[0, 1], skew[0, 2], skew[1, 2] = -omega[2], omega[1], -omega[0]
+        skew[1, 0], skew[2, 0], skew[2, 1] = omega[2], -omega[1], omega[0]
+        rotation = torch.linalg.matrix_exp(skew)
+        # camera_to_world' = camera_to_world @ D, so world_to_camera' = D^-1 @ world_to_camera.
+        inverse_delta = torch.eye(4, dtype=viewmat.dtype, device=viewmat.device)
+        inverse_delta[:3, :3] = rotation.T
+        inverse_delta[:3, 3] = -rotation.T @ translation
+        return inverse_delta @ viewmat
+
+    def render(index: int, sh_degree: int, *, corrected: bool = True):
+        viewmat = corrected_viewmat(index) if corrected else viewmats_t[index]
         out, _alpha, info = rasterization(
             means=params["means"], quats=params["quats"], scales=torch.exp(params["scales"]),
             opacities=torch.sigmoid(params["opacities"]), colors=torch.cat([params["sh0"], params["shN"]], dim=1),
-            viewmats=viewmats_t[index : index + 1], Ks=ks_t[index : index + 1], width=width, height=height,
+            viewmats=viewmat[None], Ks=ks_t[index : index + 1], width=width, height=height,
             sh_degree=sh_degree, packed=False,
         )
-        return out[0].clamp(0.0, 1.0), info
+        image = out[0]
+        if corrected and settings.exposure_opt:
+            image = image * (1.0 + exposure[index, :3]) + exposure[index, 3:]
+        return image.clamp(0.0, 1.0), info
 
     for step in range(settings.iterations):
         index = int(rng.choice(train))
@@ -150,7 +185,7 @@ def train_splats(
         loss = 0.8 * torch.abs(image - target).mean() + 0.2 * (1.0 - _ssim(image, target))
         strategy.step_pre_backward(params, optimizers, state, step, info)
         loss.backward()
-        for optimizer in optimizers.values():
+        for optimizer in [*optimizers.values(), *extra_optimizers]:
             optimizer.step()
             optimizer.zero_grad(set_to_none=True)
         means_decay.step()
