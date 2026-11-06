@@ -68,7 +68,17 @@ When enabled, splats are trained on the GPU (gsplat) from the same color
 keyframes and headset poses, with no structure-from-motion:
 
 * **Seed:** fused mesh vertices that a color camera observed, at most 300k. Never-seen geometry is not seeded, because it would stay as untrained gray splats.
-* **Training:** 7000 iterations by default at half resolution. Loss is 0.8·L1 + 0.2·(1 − SSIM). The SH degree ramps up to 3. gsplat's `DefaultStrategy` densifies until 75% of training.
+* **Training:** 15000 iterations by default at half resolution. Loss is 0.8·L1 + 0.2·(1 − SSIM). The SH degree ramps up to 3. gsplat's `DefaultStrategy` densifies until 75% of training, but stops at iteration 5250 at the latest (`max_refine_iter`). Later iterations refine the existing splats without adding more.
+  * Measured on the real recapture (holdout PSNR / splats):
+
+    | Run | Holdout PSNR | Splats |
+    | --- | --- | --- |
+    | 7k | 29.7 | 878k |
+    | 15k, densifying to 75% | 30.9 | 1.43M |
+    | **15k, capped at 5250 (default)** | **30.95** | **893k** |
+    | 30k | 31.4 | 2.09M |
+
+  * About 5.5 min on an RTX 4080 Laptop GPU.
 * **Held-out views:** every 8th view is held out, and `stats.splat_holdout_psnr` reports PSNR on them.
 * **Export:** splats with opacity ≤ 0.005 are dropped. `scene.splat` is the 32-byte-per-splat antimatter15 layout:
   * position float32×3 and linear scale float32×3;

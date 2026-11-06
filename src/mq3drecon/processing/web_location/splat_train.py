@@ -22,7 +22,7 @@ from mq3drecon.processing.web_location.texture_bake import BakeView
 
 @dataclass(frozen=True)
 class SplatSettings:
-    iterations: int = 7000
+    iterations: int = 15000
     downscale: int = 2
     max_init_points: int = 300_000
     sh_degree: int = 3
@@ -34,6 +34,12 @@ class SplatSettings:
     pose_opt_lr: float = 5e-5
     exposure_opt: bool = False  # learn a per-view RGB gain and bias applied to the render
     exposure_opt_lr: float = 1e-3
+    # Densification (splitting/cloning, which grows the splat count) stops here; None = 75% of iterations,
+    # capped at 5250. Training past it refines the existing splats without adding more (file size, headset
+    # frame rate). Real recapture, holdout PSNR / splats: 7k iterations 29.7 dB / 878k; 15k with densification
+    # to 75% 30.9 dB / 1.43M; 15k capped at 5250 30.95 dB / 893k; 30k to 75% 31.4 dB / 2.09M.
+    refine_stop_iter: int | None = None
+    max_refine_iter: int = 5250
 
 
 @dataclass(frozen=True)
@@ -135,7 +141,10 @@ def train_splats(
     rates = {"means": 1.6e-4 * scene_scale, "scales": 5e-3, "quats": 1e-3, "opacities": 5e-2, "sh0": 2.5e-3, "shN": 2.5e-3 / 20}
     optimizers = {name: torch.optim.Adam([{"params": params[name], "lr": lr, "name": name}], eps=1e-15) for name, lr in rates.items()}
     means_decay = torch.optim.lr_scheduler.ExponentialLR(optimizers["means"], gamma=0.01 ** (1.0 / settings.iterations))
-    strategy = DefaultStrategy(verbose=False, refine_stop_iter=int(settings.iterations * 0.75))
+    refine_stop = settings.refine_stop_iter
+    if refine_stop is None:
+        refine_stop = min(int(settings.iterations * 0.75), settings.max_refine_iter)
+    strategy = DefaultStrategy(verbose=False, refine_stop_iter=min(refine_stop, settings.iterations))
     strategy.check_sanity(params, optimizers)
     state = strategy.initialize_state(scene_scale=scene_scale)
 

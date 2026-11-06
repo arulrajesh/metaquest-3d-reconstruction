@@ -123,7 +123,7 @@ def build_location(
     textured_triangles: int = 150_000,
     texture_size: int = 4096,
     splats: bool = True,
-    splat_iterations: int = 7000,
+    splat_iterations: int = 15000,
     device: str = "cuda:0",
 ) -> LocationResult:
     from mq3drecon.processing.web_location.mesh_build import fuse_session
