@@ -23,7 +23,7 @@ Last updated: 2026-11-06
   - **Compaction:** 309 MB → 84 MB, keeping 143 color and 500 depth keyframes over 144 s.
   - **Session split, caused by me:** restarting the receiver mid-session (to move the app off adb reverse) split off the first 14 s into an unfinalized `20261106_175535`. The app resumed into `..._2`.
     - Lesson: never restart `mq3drecon live` while the app is recording.
-    - Improvement to make: the receiver should resume into the existing session folder, not create `_2`.
+    - A Wi-Fi drop *within* one receiver process does resume into the same folder (30 s grace; tested in `tests/test_live_session_resume.py`, `169aba1`). Only a receiver restart splits a session.
   - Closing the Open3D preview window ends `mq3drecon live`. That happens after the session is saved.
   - **Floor:** the boundaryless app's tracking origin is about 0.6 m *below* the floor (head y between 1.4 and 2.4). The floor prior correctly declined, and the lowest substantial horizontal surface (0.63 m) is right.
   - **Real-mesh UV unwrap had three failures, all fixed (`8899b9e`, `6291301`):**
