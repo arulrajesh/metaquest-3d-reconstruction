@@ -21,7 +21,7 @@ class LiveServerConfig:
     adb: bool = True
     adb_path: str | None = None
     push_endpoint: bool = True
-    app_package: str = "com.t34400.QuestRealityCapture"
+    app_package: str = "com.arulrajesh.QuestRealityCaptureLive"  # the streaming fork; installs beside the stock app
 
 
 @dataclass(frozen=True)

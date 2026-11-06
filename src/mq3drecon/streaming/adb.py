@@ -142,7 +142,7 @@ def setup_adb_connection(
     *,
     adb_path: Path | None = None,
     push: bool = True,
-    package: str = "com.t34400.QuestRealityCapture",
+    package: str = "com.arulrajesh.QuestRealityCaptureLive",
 ) -> tuple[Path | None, list[AdbDeviceSetup]]:
     """For every adb device: ``adb reverse`` plus (wireless) push of the laptop endpoint. Never raises."""
     adb = find_adb(adb_path)

@@ -42,7 +42,14 @@ This fork extends MQ3DRecon with **live streaming reconstruction** (Quest 3 → 
 - **Hardware:** RTX 4080 Laptop GPU 12 GB, 31.6 GB RAM.
 - **adb:** two copies exist, one on PATH from Touch Portal and one at `%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe`. Mismatched versions kill each other's server; pass `--adb` to pin one.
 - **Bash tool quirk:** a literal backslash-x-zero-zero escape in a command (heredoc or `-c`) reaches the file as a real NUL byte. Write files with such escapes using the Write/Edit tools, or build the bytes in code (`bytes([0])`).
-- **Unity is not installed here,** so the C# in the QuestRealityCapture fork cannot be compiled locally. Review it carefully and say so when reporting.
+- **Unity 6000.4.5f1 with Android support** is at `C:\Users\Arul\Unity\Hub\Editor\6000.4.5f1\Editor\Unity.exe`.
+  - Unity Hub 3.22.5 is an MSIX app: `C:\Program Files\WindowsApps\UnityTechnologies.UnityHub_3.22.5.65535_x64__2vrhnee42bhxm\app\Unity Hub.exe`.
+  - The Hub CLI needs `Remove-Item Env:ELECTRON_RUN_AS_NODE` first. VS Code sets it to 1, which turns the Hub into plain Node.
+  - The Personal license lives in the MSIX's private `LocalCache`, not in `%LOCALAPPDATA%\Unity\licenses`.
+    - Batch builds get the license over the named pipe of the Hub's licensing client. **Unity Hub must be running when you build.**
+  - Build: `QuestRealityCapture\Tools\build_and_install.ps1`.
+- **Two capture apps on the headset.** The streaming fork installs as `com.arulrajesh.QuestRealityCaptureLive`, beside the stock `com.t34400.QuestRealityCapture`.
+  - They have different signatures. Reusing the stock package ID would force an uninstall, and that deletes the stock app's recordings.
 
 ## User setup and preferences (decided 2026-11-06)
 
@@ -57,6 +64,6 @@ This fork extends MQ3DRecon with **live streaming reconstruction** (Quest 3 → 
 | --- | --- |
 | Wire protocol | `src/mq3drecon/streaming/` (framing, messages, payloads); spec in `specs/LIVE_STREAMING.md` |
 | Ports | TCP 9870 for frames; UDP 9871 for discovery (`MQLS?` probe); HTTP 8080 for the local site |
-| Endpoint file pushed to headset | `/sdcard/Android/data/com.t34400.QuestRealityCapture/files/live_stream_endpoint.json` |
+| Endpoint file pushed to headset | `/sdcard/Android/data/com.arulrajesh.QuestRealityCaptureLive/files/live_stream_endpoint.json` (`LiveServerConfig.app_package`) |
 | Pixel conventions | Quest **depth** intrinsics use `cx → width - cx` (`utils/depth_utils.mirror_principal_point_x`), as the offline pipeline does. MRUK **color** intrinsics use the **raw** principal point: the offline pipeline's mirroring is wrong for MRUK color (real-data test, 2026-11-06). Poses go Unity → Open3D with `Transforms.convert_coordinate_system(OPEN3D, is_camera=True)`. `.rgba` frames are bottom-up, `.jpg` frames are top-down. |
 | Synthetic test data | The synthetic room capture generator inverts those conventions; use it instead of headset data in tests |
