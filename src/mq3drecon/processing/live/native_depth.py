@@ -8,7 +8,9 @@ MRUK *color* intrinsics deliberately use the raw principal point, without the
 mirroring the offline pipeline applies. A held-out-camera photometric test on
 real Quest 3 data (2026-11-06) showed the raw value is consistent between the
 left and right cameras, while the mirrored one misregisters color by about 6–8 px
-(see ``specs/LIVE_RECONSTRUCTION.md``).
+(see ``specs/LIVE_RECONSTRUCTION.md``). Re-checked after the sensor-resolution
+fix (``dataio/mruk_intrinsics``): splat training on a real capture reached
+28.6 dB with the raw principal point versus 27.2 dB with it mirrored.
 Lightweight: numpy only.
 """
 
@@ -82,18 +84,22 @@ def depth_intrinsic(frame: DepthFrame) -> np.ndarray:
 
 
 def color_intrinsic(intrinsics: dict[str, Any], width: int, height: int) -> np.ndarray:
-    """MRUK intrinsics JSON to a pinhole matrix for the top-down image, scaled if the streamed frame is resized.
+    """MRUK intrinsics JSON to a pinhole matrix for a ``width`` x ``height`` top-down image.
 
-    The principal point is used as reported by MRUK (not mirrored).
+    MRUK's ``focalLength`` and ``principalPoint`` are in **sensor** pixels (``sensorResolution``,
+    1728x1728 on Quest 3), not in the delivered image's pixels (``resolution`` /
+    ``currentResolution``, e.g. 1280x1280). A delivered image is the sensor image center-cropped to
+    its aspect ratio and then scaled (Meta's ``PassthroughCameraUtils`` mapping), so the matrix is
+    mapped through that crop and scale. Older files without ``sensorResolution`` fall back to
+    ``resolution`` (no crop). The principal point is used as reported by MRUK (not mirrored).
+
+    Until 2026-11-06 this scaled from ``resolution`` instead, so 1280-pixel captures got a focal
+    length 35% too long and a principal point ~225 px off: blurry vertex colors, ghosted texture
+    blends and splats that could not fit their own training views. See ``dataio/mruk_intrinsics``.
     """
-    resolution = intrinsics.get("resolution", {})
-    sx = width / float(resolution.get("width", width) or width)
-    sy = height / float(resolution.get("height", height) or height)
-    fx = float(intrinsics["focalLength"]["x"]) * sx
-    fy = float(intrinsics["focalLength"]["y"]) * sy
-    cx = float(intrinsics["principalPoint"]["x"]) * sx
-    cy = float(intrinsics["principalPoint"]["y"]) * sy
-    return _intrinsic(fx, fy, cx, cy)
+    from mq3drecon.dataio.mruk_intrinsics import image_pinhole
+
+    return _intrinsic(*image_pinhole(intrinsics, width, height))
 
 
 def depth_to_metric(frame: DepthFrame, *, depth_min_m: float, depth_max_m: float) -> MetricDepth | None:

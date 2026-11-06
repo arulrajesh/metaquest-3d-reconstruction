@@ -125,7 +125,9 @@ def _color_blur(project_dir: Path, side: Side, policy: KeyframePolicy) -> tuple[
     paths = ProjectPathConfig(project_dir)
     meta = pd.read_csv(paths.image.get_mruk_frame_metadata_csv_path(side)).sort_values("timestamp_us_realtime")
     intrinsics = json.loads(paths.image.get_mruk_intrinsics_json_path(side).read_text(encoding="utf-8"))
-    focal = float(intrinsics["focalLength"]["x"])
+    from mq3drecon.dataio.mruk_intrinsics import image_pinhole
+
+    focal = image_pinhole(intrinsics)[0]  # in image pixels (MRUK reports sensor pixels)
     pose_filter = PoseKalmanFilter()
     times, blur = [], []
     for row in meta.itertuples(index=False):

@@ -50,17 +50,19 @@ class MRUKImageDataIO:
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
 
+        from mq3drecon.dataio.mruk_intrinsics import image_pinhole
+
         resolution = data["resolution"]
-        focal_length = data["focalLength"]
-        principal_point = data["principalPoint"]
+        # focalLength/principalPoint are in sensor pixels; map them to the delivered image's pixels.
+        fx, fy, cx, cy = image_pinhole(data, int(resolution["width"]), int(resolution["height"]))
 
         return MRUKIntrinsics(
             width=int(resolution["width"]),
             height=int(resolution["height"]),
-            fx=float(focal_length["x"]),
-            fy=float(focal_length["y"]),
-            cx=float(principal_point["x"]),
-            cy=float(principal_point["y"]),
+            fx=fx,
+            fy=fy,
+            cx=cx,
+            cy=cy,
             image_format=str(data.get("imageFormat", data.get("format", "RGBA32"))),
         )
 
