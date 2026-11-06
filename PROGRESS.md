@@ -51,7 +51,9 @@ Last updated: 2026-11-06
     - SH in the export: `.splat` drops view-dependent color. SPZ or `.ply` would keep it, but test Spark loading in a browser first.
     - More color keyframes for splats: compaction keeps ~1/s, tuned for TSDF. This needs a new capture to measure.
     - Floor holes.
-    - **Headset test (needs the user):** splat frame rate at ~900k splats, plus joystick movement and the comfort vignette.
+    - **First headset view (2026-11-06):** the user said the splat "looks ok" and the mesh is "horrible". VR is now splat-only by default (`6ba7908`). The grip toggles the mesh only with `&mesh=1`; the mesh remains the collider.
+      - Still to hear: frame rate at ~900k splats, and how the joystick movement and comfort vignette feel.
+    - `serve-locations` keeps wireless adb and the 8080 forward alive (`0387e26`, `bdb022e`). It reconnects remembered headsets (`~/MQ3DRecon/headsets.json`) every 15 s and re-applies the forward every 5 s.
 - The first stock-app capture (`20261106_120328`) was rejected ("garbage") and deleted. The user deleted all old stock-app recordings from the headset (2026-11-06), freeing 15 GB.
 - **The streaming APK builds (2026-11-06, fork `fb37a71`).** `Builds/QuestRealityCapture-live.apk` is 64 MB and installs as `com.arulrajesh.QuestRealityCaptureLive` ("QuestRealityCapture Live"). A first build takes about 15 min; later builds take about 3–8. `Tools/watch_build.ps1` shows a live progress bar. Issues found on the first real build:
   - Our only compile error: `Camera.main` resolved to the `RealityLog.Camera` namespace (fixed).
