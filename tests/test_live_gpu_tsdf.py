@@ -79,3 +79,38 @@ def test_torso_exclusion_removes_points_below_the_head():
     assert removed > 0
     assert cleaned.depth_m[50, 50] == 0.0  # straight down, 1 m below the head: inside the torso capsule
     assert cleaned.depth_m[0, 0] == 1.0  # far corner of the view: outside the 0.35 m radius
+
+
+def test_tracking_jump_starts_a_new_segment(synthetic_frames):
+    from dataclasses import replace as dc_replace
+
+    from mq3drecon.config.live_config import preset
+    from mq3drecon.processing.live.reconstructor import LiveReconstructor
+    from mq3drecon.streaming.messages import Pose
+
+    intrinsics, colors, depths = synthetic_frames
+    config = preset("indoor")
+    config = dc_replace(
+        config,
+        volume=dc_replace(config.volume, extent_m=(6.0, 4.0, 6.0)),
+        integration=dc_replace(config.integration, queue_size=64),
+        preview=dc_replace(config.preview, min_weight=1.0, mesh_interval_s=60.0),
+    )
+    reconstructor = LiveReconstructor(config)
+    try:
+        reconstructor.begin_session(intrinsics)
+        for color in colors.values():
+            reconstructor.add_color(color)
+        half = len(depths) // 2
+        for frame in depths[:half]:
+            reconstructor.add_depth(frame)
+        for frame in depths[half:]:  # same frames, tracking origin shifted 3 m: a reset
+            p = frame.create_pose.position
+            shifted = dc_replace(frame, create_pose=Pose((p[0] + 3.0, p[1], p[2]), frame.create_pose.rotation))
+            reconstructor.add_depth(shifted)
+        snapshot = reconstructor.end_session()
+    finally:
+        reconstructor.close()
+    assert snapshot.stats.tracking_jumps == 1
+    assert len(snapshot.previous_segments) == 1 and len(snapshot.previous_segments[0].triangles) > 0
+    assert len(snapshot.mesh.triangles) > 0

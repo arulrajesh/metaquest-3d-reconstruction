@@ -43,6 +43,8 @@ class LiveIntegrationConfig:
     queue_size: int = 4
     exclude_torso: bool = True
     torso_radius_m: float = 0.35
+    jump_distance_m: float = 0.3
+    jump_speed_mps: float = 2.0
 
 
 @dataclass(frozen=True)

@@ -176,6 +176,18 @@ Read when changing:
 
 Related tests: `tests/test_live_streaming_protocol.py`, `tests/test_live_streaming_end_to_end.py`.
 
+## `LIVE_RECONSTRUCTION.md`
+
+Navigation for `mq3drecon live`: workspace layout, session lifecycle, live GPU TSDF, exclusion, tracking-jump segmentation, and live configuration.
+
+Read when changing:
+
+* `mq3drecon.processing.live` modules
+* `mq3drecon.workflows.live_session` or `live_reconstruction`
+* `mq3drecon.config.live_config` or its presets
+
+Related tests: `tests/test_live_gpu_tsdf.py`, `tests/test_live_workflow.py`.
+
 ## `LOGGING_AND_ERRORS.md`
 
 Navigation for library error reporting, typed project exceptions, logging, and CLI error conversion.

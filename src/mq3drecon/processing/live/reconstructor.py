@@ -33,6 +33,7 @@ class LiveStats:
     integrate_ms: float = 0.0
     triangles: int = 0
     volume_dims: tuple[int, int, int] | None = None
+    tracking_jumps: int = 0
 
 
 @dataclass(frozen=True)
@@ -42,6 +43,8 @@ class LiveSnapshot:
     camera_to_world: np.ndarray | None
     trajectory: np.ndarray
     stats: LiveStats = field(default_factory=LiveStats)
+    previous_segments: tuple[MeshArrays, ...] = ()
+    """Meshes of earlier segments, closed when tracking jumped (each in its own coordinate frame)."""
 
 
 class LiveReconstructor:
@@ -59,6 +62,8 @@ class LiveReconstructor:
         self._stats = LiveStats()
         self._trajectory: list[np.ndarray] = []
         self._last_pose: np.ndarray | None = None
+        self._last_time_us: int | None = None
+        self._segments: list[MeshArrays] = []
         self._snapshot: LiveSnapshot | None = None
         self._sequence = 0
         self._dirty = False
@@ -74,6 +79,8 @@ class LiveReconstructor:
             self._stats = LiveStats()
             self._trajectory = []
             self._last_pose = None
+            self._last_time_us = None
+            self._segments = []
             self._snapshot = None
             self._dirty = False
             self._history.clear()
@@ -145,6 +152,8 @@ class LiveReconstructor:
         if depth is None:
             self._stats = replace(self._stats, frames_invalid=self._stats.frames_invalid + 1)
             return
+        if self._is_tracking_jump(depth):
+            self._start_new_segment()
         excluded = 0
         if cfg.exclude_torso:
             depth, excluded = apply_exclusion(depth, [torso_capsule(depth.view.position, radius_m=cfg.torso_radius_m)])
@@ -160,6 +169,7 @@ class LiveReconstructor:
             self._stats = replace(self._stats, frames_without_color=self._stats.frames_without_color + 1)
         self._trajectory.append(depth.view.position.copy())
         self._last_pose = depth.view.camera_to_world
+        self._last_time_us = depth.view.timestamp_us
         self._dirty = True
         self._stats = replace(
             self._stats,
@@ -167,6 +177,25 @@ class LiveReconstructor:
             excluded_pixels=self._stats.excluded_pixels + excluded,
             integrate_ms=(time.perf_counter() - start) * 1000.0,
         )
+
+    def _is_tracking_jump(self, depth: MetricDepth) -> bool:
+        """A pose change no person could make between frames: the tracking origin was reset."""
+        if self._last_pose is None or self._last_time_us is None:
+            return False
+        distance = float(np.linalg.norm(depth.view.position - self._last_pose[:3, 3]))
+        dt = max((depth.view.timestamp_us - self._last_time_us) / 1e6, 1e-3)
+        cfg = self.config.integration
+        return distance > cfg.jump_distance_m and distance / dt > cfg.jump_speed_mps
+
+    def _start_new_segment(self) -> None:
+        if self._volume is not None and self._volume.frames_integrated:
+            mesh = self._volume.extract_mesh(min_weight=self.config.preview.min_weight)
+            if len(mesh.triangles):
+                self._segments.append(mesh)
+        logger.warning("Tracking jump detected: starting live segment %d", len(self._segments) + 1)
+        self._volume = None
+        self._trajectory = []
+        self._stats = replace(self._stats, tracking_jumps=self._stats.tracking_jumps + 1)
 
     def _ensure_volume(self, depth: MetricDepth) -> GpuTsdfVolume:
         if self._volume is None:
@@ -198,4 +227,5 @@ class LiveReconstructor:
             camera_to_world=None if self._last_pose is None else self._last_pose.copy(),
             trajectory=np.asarray(self._trajectory, dtype=np.float32).reshape(-1, 3),
             stats=self.stats,
+            previous_segments=tuple(self._segments),
         )

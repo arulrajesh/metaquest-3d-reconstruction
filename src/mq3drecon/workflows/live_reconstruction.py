@@ -29,20 +29,27 @@ def default_workspace() -> Path:
 
 
 def save_live_mesh(completed: CompletedSession) -> Path | None:
-    """Write the session's final live mesh next to its recording."""
+    """Write the session's final live mesh (and any earlier tracking segments) next to its recording."""
     snapshot = completed.final_snapshot
-    if snapshot is None or not len(snapshot.mesh.triangles):
+    if snapshot is None:
         return None
     import numpy as np
     import open3d as o3d
 
-    mesh = o3d.geometry.TriangleMesh(
-        o3d.utility.Vector3dVector(snapshot.mesh.vertices.astype(np.float64)),
-        o3d.utility.Vector3iVector(snapshot.mesh.triangles.astype(np.int32)),
-    )
-    mesh.vertex_colors = o3d.utility.Vector3dVector(snapshot.mesh.colors.astype(np.float64))
+    def write(mesh_arrays, path: Path) -> None:
+        mesh = o3d.geometry.TriangleMesh(
+            o3d.utility.Vector3dVector(mesh_arrays.vertices.astype(np.float64)),
+            o3d.utility.Vector3iVector(mesh_arrays.triangles.astype(np.int32)),
+        )
+        mesh.vertex_colors = o3d.utility.Vector3dVector(mesh_arrays.colors.astype(np.float64))
+        o3d.io.write_triangle_mesh(str(path), mesh)
+
+    for index, segment in enumerate(snapshot.previous_segments):
+        write(segment, completed.project_dir / f"live_mesh_segment_{index}.ply")
+    if not len(snapshot.mesh.triangles):
+        return None
     path = completed.project_dir / LIVE_MESH_FILE
-    o3d.io.write_triangle_mesh(str(path), mesh)
+    write(snapshot.mesh, path)
     return path
 
 
@@ -56,6 +63,7 @@ def _format_status(controller: LiveSessionController, reconstructor) -> str:
         f"[live] {link} | {session} | rx color {status.color_frames} depth {status.depth_frames} | "
         f"integrated {stats.frames_integrated} ({stats.integrate_ms:.1f} ms) | "
         f"dropped headset {dropped} live {stats.frames_dropped} | tris {stats.triangles:,}"
+        + (f" | tracking jumps {stats.tracking_jumps}" if stats.tracking_jumps else "")
     )
 
 
