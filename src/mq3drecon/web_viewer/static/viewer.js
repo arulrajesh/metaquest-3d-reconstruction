@@ -6,7 +6,8 @@
 //   right thumbstick  left/right snap-turns 30°; up/down flies up/down; click lands you on the ground.
 //                     The higher you fly, the faster you glide.
 //   trigger           hold to aim, release to teleport (upward-facing surfaces only).
-//   grip              switch splat <-> mesh.
+//   grip              switch splat <-> mesh, only with &mesh=1 in the URL. By default visitors see only the
+//                     splat: the scanned mesh is the (invisible) collider and looks rough next to it.
 //   A comfort vignette narrows the view while you glide or fly (add &vignette=0 to the URL to turn it off).
 // On desktop: drag to orbit, scroll to zoom, WASD / arrow keys to move (Shift = faster, Q/E = down/up),
 // M to switch splat <-> mesh.
@@ -31,6 +32,7 @@ const DOWN = new THREE.Vector3(0, -1, 0);
 
 const params = new URLSearchParams(location.search);
 const comfortVignette = params.get('vignette') !== '0';
+const meshToggleInVr = params.get('mesh') === '1';  // grip switches splat <-> mesh only when asked for
 const statusEl = document.getElementById('status');
 const setStatus = (text) => { statusEl.textContent = text; };
 
@@ -273,7 +275,7 @@ const controllers = [0, 1].map((index) => {
   });
   controller.addEventListener('connected', (event) => { controller.userData.inputSource = event.data; });
   controller.addEventListener('disconnected', () => { controller.userData.inputSource = null; });
-  controller.addEventListener('squeezestart', toggleRepresentation);
+  if (meshToggleInVr) controller.addEventListener('squeezestart', toggleRepresentation);
   scene.add(controller);
   const grip = renderer.xr.getControllerGrip(index);
   grip.add(modelFactory.createControllerModel(grip));

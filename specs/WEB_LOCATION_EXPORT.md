@@ -175,6 +175,6 @@ one. `--open-headset` also opens that URL in the headset browser.
   * **Comfort vignette.** A head-locked ring closes in while gliding or flying: clear inside about 26°, dark beyond about 49°, strength 0.9 × stick deflection. `&vignette=0` in the URL turns it off.
 * **On desktop:** orbit controls starting at the spawn point at eye height. WASD or the arrow keys move horizontally and Q/E move down/up (free flight, no collision). Shift moves 3× faster.
 
-* **Splats.** When `assets.splat` is set, the viewer loads Spark (`@sparkjsdev/spark` 2.3.1) and shows the splat by default, with the visual mesh hidden. **M** on desktop, or a grip squeeze in VR, toggles splat and mesh. The collider and teleport are unchanged.
+* **Splats.** When `assets.splat` is set, the viewer loads Spark (`@sparkjsdev/spark` 2.3.1) and shows the splat by default, with the visual mesh hidden. **M** on desktop toggles splat and mesh. In VR a grip squeeze does the same only with `&mesh=1` in the URL. By default visitors see only the splat: the scanned mesh looks rough next to it (user feedback, 2026-11-06), and it stays the invisible collider. The collider and teleport are unchanged.
 
 three.js is loaded from a pinned version (0.181.2); Spark needs ≥ 0.180. three-mesh-bvh 0.9.16 needs three ≥ 0.159.
