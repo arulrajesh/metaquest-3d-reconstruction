@@ -127,6 +127,45 @@ and must not be merged without registration.
 
 ---
 
+# Keyframe-only Fusion
+
+The live worker applies the keyframe policy of `SESSION_COMPACTION.md` causally:
+
+1. Each depth frame is scored by a dry run, with the color camera of the nearest color frame for color novelty.
+2. The keyframe selector decides.
+3. Only kept frames are fused. A wanted color keyframe uses the locally sharpest color frame within `color_window_s`.
+
+The live model therefore shows exactly what the compact recording will contain.
+
+Tracking jumps come from the pose Kalman filter's innovation test, with a
+minimum innovation of `integration.jump_min_m`.
+
+---
+
+# Headset Feedback
+
+While a headset is connected, the laptop sends (`LIVE_STREAMING.md`):
+
+* a `KEYFRAME` notice for every decision;
+* the live mesh simplified by vertex clustering (`feedback.surface_cluster_m`, enlarged until at most `feedback.surface_max_triangles`), every `feedback.surface_interval_s`;
+* `STATUS` every `feedback.status_interval_s`.
+
+---
+
+# After a Session
+
+When `build.compact_after_session` is set (the default), the ended session is
+compacted in a background thread (`SESSION_COMPACTION.md`):
+
+* the compact copy is written as `<name>.compacting`;
+* only after that succeeds is the full recording removed, or kept as `<name>_full` when `build.keep_full_recording` is set;
+* the copy is then renamed to `<name>`;
+* `live_mesh*.ply` and `live_session.json` are carried over.
+
+If compaction fails, the full recording is kept.
+
+---
+
 # Back-pressure and Preview
 
 Depth frames reach the GPU worker through a bounded drop-oldest queue

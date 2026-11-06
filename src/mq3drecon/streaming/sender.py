@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import queue
 import socket
+import threading
 from types import TracebackType
 
 from mq3drecon.streaming.messages import Message, encode_message
@@ -16,6 +18,8 @@ class LiveSender:
         self.port = port
         self._timeout_s = timeout_s
         self._socket: socket.socket | None = None
+        self._reader: threading.Thread | None = None
+        self._inbox: queue.Queue = queue.Queue()
         self.bytes_sent = 0
 
     def connect(self) -> "LiveSender":
@@ -32,6 +36,36 @@ class LiveSender:
         data = encode_message(message)
         self._socket.sendall(data)
         self.bytes_sent += len(data)
+
+    def receive(self, timeout_s: float | None = None):
+        """Next message sent back by the receiver (feedback), or None on timeout or after the link closed.
+
+        A background thread does blocking reads (socket timeouts would corrupt a buffered reader).
+        """
+        if self._socket is None:
+            raise ConnectionError("LiveSender is not connected")
+        if self._reader is None:
+            self._reader = threading.Thread(target=self._read_loop, name="mq3drecon-live-sender-reader", daemon=True)
+            self._reader.start()
+        try:
+            return self._inbox.get(timeout=timeout_s)
+        except queue.Empty:
+            return None
+
+    def _read_loop(self) -> None:
+        from mq3drecon.streaming.framing import StreamProtocolError, read_frame
+        from mq3drecon.streaming.messages import decode_message
+
+        assert self._socket is not None
+        stream = self._socket.makefile("rb")
+        try:
+            while True:
+                raw = read_frame(stream)
+                if raw is None:
+                    return
+                self._inbox.put(decode_message(raw))
+        except (OSError, StreamProtocolError):
+            return
 
     def close(self) -> None:
         if self._socket is not None:

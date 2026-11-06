@@ -32,6 +32,10 @@ class ColorHistory:
             else:
                 frames.append(frame)
 
+    def within(self, side: Side, timestamp_us: int, window_us: int) -> list[ColorFrame]:
+        with self._lock:
+            return [f for f in self._frames[side] if abs(f.timestamp_us - timestamp_us) <= window_us]
+
     def nearest(self, side: Side, timestamp_us: int, tolerance_us: int) -> ColorFrame | None:
         with self._lock:
             frames = list(self._frames[side])

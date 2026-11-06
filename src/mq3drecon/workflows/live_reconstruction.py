@@ -102,18 +102,33 @@ def run_live_capture(
     stop = stop_event or threading.Event()
 
     from mq3drecon.processing.live.reconstructor import LiveReconstructor
+    from mq3drecon.workflows.live_feedback import FeedbackPublisher
 
     reconstructor = LiveReconstructor(cfg)
 
     def completed_callback(completed: CompletedSession) -> None:
         mesh_path = save_live_mesh(completed)
         print(f"[live] Session saved: {completed.project_dir}" + (f" (live mesh {mesh_path.name})" if mesh_path else ""))
-        if on_session_complete is not None:
-            on_session_complete(completed)
+
+        def postprocess() -> None:
+            if cfg.build.compact_after_session:
+                try:
+                    from mq3drecon.workflows.live_postprocess import compact_in_place
+
+                    compact_in_place(completed.project_dir, cfg)
+                except Exception:
+                    logger.exception("Compaction failed; the full recording is kept: %s", completed.project_dir)
+            if on_session_complete is not None:
+                on_session_complete(completed)
+
+        threading.Thread(target=postprocess, name="mq3drecon-live-postprocess", daemon=False).start()
 
     controller = LiveSessionController(workspace / "sessions", reconstructor, completed_callback)
     receiver = LiveReceiver(controller, cfg.server.host, cfg.server.port, idle_timeout_s=cfg.server.idle_timeout_s)
     port = receiver.start()
+    feedback = FeedbackPublisher(cfg, receiver, reconstructor, controller)
+    reconstructor.on_keyframe = feedback.on_keyframe
+    feedback.start()
     discovery = None
     if cfg.server.discovery:
         try:
@@ -147,6 +162,7 @@ def run_live_capture(
         pass
     finally:
         print()
+        feedback.stop()
         receiver.stop()
         if discovery is not None:
             discovery.stop()

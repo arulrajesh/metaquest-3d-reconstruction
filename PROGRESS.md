@@ -1,6 +1,6 @@
 # Progress
 
-Plan: `PLAN.md`. Update this file at the end of every session and commit it.
+Plan: `PLAN.md`. Future release: `FUTURE.md`. Update this file at the end of every session and commit it.
 
 Last updated: 2026-11-06
 
@@ -8,86 +8,107 @@ Last updated: 2026-11-06
 
 | Milestone | Status |
 | --- | --- |
-| M0 Feasibility | **Mostly done.** The environment is checked, the synthetic capture is done, and the Warp GPU spike passes. On-device measurements are pending: JPEG encode time, heat, and WebXR frame rate. |
-| M1 Protocol, replay, receiver | **Done** (`0fff734`). Spec: `specs/LIVE_STREAMING.md`. 20 tests. |
-| M2 Live reconstruction, viewer, recorder | **Core done** (`2126aca`, `6ae95be`). Built: GPU TSDF, reconstructor, session controller, `mq3drecon live`, viewer, end-to-end test. Missing: `specs/LIVE_RECONSTRUCTION.md`, `CLI_BEHAVIOR.md` entries, a real-data check, and an interactive check of the viewer window. |
-| M3 Headset sender (QuestRealityCapture fork) | Not started. The fork is cloned and on branch `feature/live-streaming`. |
-| M4 Live stereo quality mode | Deferred: needs `onnxruntime-gpu` or WSL2 |
+| M0 Feasibility | **Mostly done.** Environment, synthetic capture, Warp GPU spike, and real-headset data checks are done. Pending on-device: JPEG encode cost, heat, and WebXR frame rate. |
+| M1 Protocol, replay, receiver | **Done.** `specs/LIVE_STREAMING.md`. |
+| M2 Live reconstruction | **Done** (laptop side), with additions not in the original plan: **Kalman TSDF**, **keyframe-only fusion**, **compaction**, **two-way feedback** (`KEYFRAME`, `SURFACE_MESH`, `STATUS`). Specs: `LIVE_RECONSTRUCTION.md`, `SESSION_COMPACTION.md`. **Not yet checked by a person:** the Open3D viewer window in an interactive run. |
+| M3 Headset sender (QuestRealityCapture fork) | **In progress.** C# protocol, queue, and frame types are written (`Assets/RealityLog/Scripts/Runtime/Streaming/`, uncommitted). Still to write: the client (send plus receive), hooks in the recorders and controller, overlay rendering, HUD, boundaryless manifest. **Unity is not installed, so nothing has been compiled.** |
+| M4 Live stereo quality mode | Deferred: needs `onnxruntime-gpu`. It is also the outdoor depth source (D13). |
 | M5 Web location export | Not started |
-| M6 Local site viewer | Not started |
+| M6 Local site viewer | Not started (local hosting via `localhost:8080` plus adb reverse; see PLAN M6) |
 
-## Done
+## Done this session (2026-11-06)
 
-- Forked `t-34400/metaquest-3d-reconstruction` and `t-34400/QuestRealityCapture` to `arulrajesh`. Remotes are `origin` (the fork) and `upstream` (t-34400).
-- `.venv` with Python 3.11.13 and `.[full]`.
-  - Open3D 0.19 has **no CUDA** on Windows.
-  - onnxruntime 1.31 is CPU only.
-- Baseline tests on `main`: 99 pass, 3 fail. The 3 failures already exist upstream; see `CLAUDE.md`.
-- MRUK frames can now be `.jpg` as well as `.rgba`.
-  - All decoding goes through `dataio/mruk_frame_codec.py`.
-  - The existing tests still pass.
-- Shared helpers `is_ndc_depth_map_valid` and `mirror_principal_point_x` are in `utils/depth_utils.py`. `DepthDataIO` and `o3d_utils` now use them, so the live and offline paths cannot drift apart.
-- The `src/mq3drecon/streaming/` package is done and tested end to end over localhost. It contains:
-  - `framing`, `messages`, `payloads`;
-  - `bounded_queue`, `receiver`, `sender`;
-  - `discovery`, `adb`, `replay`, `session_recorder`.
-- The synthetic room capture (`src/mq3drecon/synthetic/`) loads with the offline loaders. Back-projected depth lies exactly on the analytic surfaces.
-- **Warp GPU spike** (warp-lang 1.19, CUDA 13, RTX 4080). Marching cubes is `warp.geometry.IsoSurfaceMarchingCubes(nx, ny, nz)`, whose device follows the field. `wp.MarchingCubes` is deprecated. Warp kernels must live in `.py` files, not `exec`/stdin.
+**Setup**
 
-  | Case | Integrate | Marching cubes |
-  | --- | --- | --- |
-  | 2 M voxels, 320² depth | < 0.1 ms | |
-  | 101 M voxels @ 1 cm, 1280² depth | 2.1 ms | 178 ms |
-  | 77 M voxels @ 5 cm | 0.9 ms | 125 ms |
+- Forks under `arulrajesh` with remotes `origin` (fork) and `upstream`. The `.venv` has Python 3.11.13 with `.[full]` and `warp-lang` 1.19.
+- Test baseline: the 3 failures already exist upstream (see `CLAUDE.md`). Current suite: **135 pass**.
 
-- QuestRoomScan ideas and the outdoor strategy were added to `PLAN.md` §3b as decisions D12–D16.
+**Streaming** (`src/mq3drecon/streaming/`)
 
-## Headset facts (Quest 3 `2G0YC1ZG3H0214`, Horizon OS / Android 14, measured 2026-11-06)
+- Versioned TCP protocol; `u16_ndc` depth; JPEG color.
+- Receiver where the newest connection wins, plus an outbox for laptop-to-headset feedback.
+- UDP discovery, and wireless-adb endpoint push plus `adb reverse`.
+- Recorder: MRUK layout, JPEG frames, 16-bit PNG depth (left eye only by default).
+- Replay with timestamp filters.
 
-- **Network:** Wi-Fi IP 192.168.0.86; the laptop is 192.168.0.223 on the same subnet.
-- **Wireless adb:** connect USB once, run `adb tcpip 5555`, then `adb connect 192.168.0.86:5555`. Use the SDK adb (`%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe`, v36).
-- **Git Bash:** prefix headset paths in `adb shell` with `MSYS_NO_PATHCONV=1`.
-- **Capture app:** stock QuestRealityCapture v1.5.0 APK installed (`com.t34400.QuestRealityCapture`). Launch it with `adb shell monkey -p com.t34400.QuestRealityCapture -c android.intent.category.LAUNCHER 1`.
-- **Stock recorder rate:** it saves only about **3 fps per eye**, against `targetSaveFps` 10. Raw 6.5 MB RGBA writes through a per-pixel C# loop are the bottleneck. A real session: 7.2 GB after about 3 minutes.
-- **MRUK color:** 1280×1280, fx = fy = 870.07, principal point (642.97, 639.24). The intrinsics JSON also carries `lensOffset` (position and rotation) plus sensor and current resolution.
-- **Depth:** 320×320 at about 8 fps. FOV tangents are L 1.376 / R 0.839 / T 0.966 / D 1.428. `near_z` 0.1, `far_z` written as `Infinity`.
-- **Boundary:** the Guardian keeps prompting "create roomscale / stationary boundary". Workaround: draw a roomscale boundary, or turn Boundary off in the Developer settings. Fix in M3: the boundaryless manifest feature.
-- **First real session:** `20261106_120328` on the headset.
+**Live reconstruction** (`src/mq3drecon/processing/live/`)
+
+| Part | Detail |
+| --- | --- |
+| GPU TSDF | Warp, CPU fallback. Each voxel is a Kalman filter: Quest depth noise model, flying-pixel inflation, 3σ innovation gate, outlier rate, re-initialization, and free-space carving. |
+| Meshes | Keep only points with low posterior σ. |
+| `score()` | Dry run returning useful information gain (above the target precision) and color novelty. |
+| Pose Kalman filter | Tracking-jump detection and blur prediction. |
+| Keyframe selector | Depth kept for useful gain; color kept for color novelty, spacing, and local sharpness. |
+| Reconstructor | Fuses keyframes only; segments the model on tracking jumps. |
+| Exclusion | Torso capsule. |
+| Feedback mesh | Coarse, vertex-clustered, confidence-colored. |
+
+**Workflows**
+
+- `mq3drecon live`: receiver, discovery, adb, Open3D viewer, feedback publisher. Compacts in place after each session.
+- `mq3drecon live-replay`, `mq3drecon make-synthetic-capture`, `mq3drecon compact-session`.
+
+**Real-data validation** (session `20261106_120328`, 14 s window before the tracking jump)
+
+| Check | Result |
+| --- | --- |
+| Floor plane | Normal [0, 1, 0]; flatness residual 5.6 mm |
+| Mesh | 5 mm median posterior σ |
+| Color principal point | Raw MRUK principal point is correct: held-out right-camera error 0.0546 raw vs 0.0622 mirrored (D19) |
+| Compaction | 1,799 MB → **13 MB**. Geometry coverage 98.4% within 3 cm; 74% vs 80% colored vertices. |
+| Novelty trace | About 0.99 for the first frame, 0.2 while turning, 0 while standing still |
+
+## Dev samples (`C:\Users\Arul\MQ3DRecon\dev_samples\`)
+
+- `20261106_120328_compact/` (14 MB): compact real session. Use it for real-data checks.
+- `20261106_120328_headset_meta/`: CSV and JSON metadata of the full headset session.
+- The raw 1.8 GB window was deleted at the user's request ("throw away garbage").
+- The full 7+ GB original is still on the headset: `/sdcard/Android/data/com.t34400.QuestRealityCapture/files/20261106_120328`. **Ask the user before deleting it.**
+
+## Headset facts (Quest 3 `2G0YC1ZG3H0214`, Android 14)
+
+| Item | Fact |
+| --- | --- |
+| Network | Wi-Fi 192.168.0.86; laptop 192.168.0.223, same subnet |
+| Wireless adb | USB once, `adb tcpip 5555`, then `adb connect 192.168.0.86:5555`. Use the SDK adb (`%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe`, v36); the adb on PATH is Touch Portal's v28, too old. |
+| Git Bash | Prefix headset paths in `adb shell` with `MSYS_NO_PATHCONV=1` |
+| Capture app | Stock QuestRealityCapture v1.5.0 (`com.t34400.QuestRealityCapture`). Launch with `adb shell monkey -p com.t34400.QuestRealityCapture -c android.intent.category.LAUNCHER 1`. It records only **about 3 fps per eye**, because raw RGBA writes are slow. |
+| Color camera | MRUK 1280², fx 870, principal point (643, 639) |
+| Depth | 320² at about 8 fps; FOV tangents L 1.376 / R 0.839 / T 0.966 / D 1.428; far plane `Infinity` |
+| Measured motion | Median head angular speed 35°/s while scanning |
+| Boundary | Guardian prompts interrupt the scan and **reset the tracking origin**, which caused the 2.7 m pose jump. Fix in M3: the boundaryless manifest. |
 
 ## Next steps
 
-1. M2 live reconstruction. Add `warp-lang` to a new `live` extra in `pyproject.toml` and `PACKAGING.md`. Then build:
-   - `processing/live/native_depth.py` (NDC to metric, intrinsics, pose);
-   - `colorize.py` (sample color into the depth frame);
-   - `frame_matching.py`;
-   - `exclusion.py` (capsules);
-   - `gpu_tsdf.py` (Warp dense TSDF with color, marching cubes, point extraction);
-   - `worker.py` (drop-oldest queue, snapshots);
-   - `config/live_config.py`;
-   - `workflows/live_reconstruction.py` (session controller, auto-build hook);
-   - the `mq3drecon live` CLI;
-   - the Open3D desktop viewer.
-
-   Test on the synthetic room for geometry and color accuracy against `surface_distance` and `scene_color`.
-2. Headset: when the user has wireless adb connected, install the QuestRealityCapture v1.5.0 APK (stock, MRUK) and record a 15 s sample. Pull it once as a development sample and validate the live path on real data.
-3. M5 build pipeline per D16, then M6 local site with `serve-locations`, then M3 C# sender (needs Unity 6000.4.5f1 installed by the user).
+1. **M3 C# client** (`QuestRealityCapture`, branch `feature/live-streaming`):
+   - `LiveStreamClient`: endpoint resolution, send and receive threads, reconnect with resume.
+   - Hooks in `MrukCameraRecorder`, `DepthMapExporter` (readback to callback), and `RecordingSessionController`.
+   - Overlay renderer for `SURFACE_MESH` (confidence-colored, toggle), keyframe markers, and a wrist HUD from `STATUS`.
+   - Boundaryless manifest plus INTERNET permission.
+   - Headset-side gating: motion and blur from the pose filter, so redundant frames are not even sent.
+   - The user must install Unity 6000.4.5f1 with Android Build Support to build it.
+2. **First live stream from the headset.** Verify JPEG orientation (`row_order`), bandwidth, and latency.
+3. **M5:** textured GLB from keyframes (D16), collider, `location.json`.
+4. **M6:** local WebXR site and `serve-locations` (`localhost:8080` plus `adb reverse`).
+5. **M4 / outdoor:** `onnxruntime-gpu` plus Fast-FoundationStereo for outdoor depth.
 
 ## Known issues and risks
 
-- **Upstream offline pipeline (not changed here):** `compute_o3d_intrinsic_matrices` mirrors the principal point x for MRUK color datasets too. Real data shows that misregisters color by about 6–8 px; raw MRUK principal points are correct. The live and build paths use raw values. Candidate upstream issue/PR.
-
-- Whether MRUK JPEGs come out upright is unverified on a device. Unity's `EncodeNativeArrayToJPG` is expected to write an upright image from a bottom-up buffer, so the headset sends `row_order: "top_down"`. Check this with the first real stream.
-- Getting the headset's IP over wireless adb: serials can be `ip:port` or mDNS names. Fall back to `adb shell ip -f inet addr show wlan0`.
-- Windows Firewall will prompt the first time Python listens on TCP 9870 or UDP 9871. Allow it on private networks.
+- **Upstream offline pipeline (not changed here):** `compute_o3d_intrinsic_matrices` mirrors the MRUK color principal point, causing 6–8 px misregistration. Candidate upstream issue/PR.
+- **Blur exposure is assumed** at 4 ms. Image sharpness is confounded by scene content, so only extreme predicted blur (> 12 px) is rejected; otherwise the locally sharpest frame is chosen.
+- **TSDF limitation:** a surface that moves *closer* hides the old one, which remains. Surfaces that move away are carved correctly.
+- **JPEG orientation from Unity is unverified.** It is configurable on the headset (`streaming.jpegRowOrder`).
+- **Windows Firewall** prompts on the first listen on TCP 9870 and UDP 9871. Allow private networks.
+- **Wireless adb** serials can be `ip:port` or mDNS names. The device IP falls back to `ip addr show wlan0`.
 
 ## Decision log
 
 | Date | Decision |
 | --- | --- |
-| 2026-11-06 | Single visitor per location. |
-| 2026-11-06 | No copy-off-headset step: the laptop recording is the master copy. |
-| 2026-11-06 | Wireless adb on the same Wi-Fi; frames go over direct TCP. A WebSocket transport is possible later for browser clients. |
-| 2026-11-06 | Local hosting first. |
-| 2026-11-06 | Default depth encoding is `u16_ndc`. |
-| 2026-11-06 | Laptop GPU does the heavy steps (QuestRoomScan ideas). NVIDIA Warp for TSDF and meshing, replacing Open3D CPU. |
-| 2026-11-06 | Outdoor capture is a first-class mode: stereo depth, splats for the far field, ground heightfield collider. |
+| 2026-11-06 | One visitor per location. Local hosting first. Wireless adb on the same Wi-Fi; frames go over direct TCP (WebSocket possible later for browser clients). |
+| 2026-11-06 | No copy-off-headset step: the laptop recording is the master copy, compacted after each session. |
+| 2026-11-06 | Laptop GPU does the heavy steps (QuestRoomScan ideas); Warp replaces Open3D CPU for the TSDF. |
+| 2026-11-06 | Outdoor is a first-class mode: stereo depth, splats for the far field, ground heightfield collider. |
+| 2026-11-06 | Kalman filtering decides what is worth keeping (D17). Two-way feedback is in this release (D18). Raw MRUK principal point (D19). |
+| 2026-11-06 | Controller annotations, object detection, voice narration, and Gravity Sketch-style interaction are next release (`FUTURE.md`). |

@@ -42,8 +42,34 @@ class LiveIntegrationConfig:
     queue_size: int = 4
     exclude_torso: bool = True
     torso_radius_m: float = 0.35
-    jump_distance_m: float = 0.3
-    jump_speed_mps: float = 2.0
+    jump_min_m: float = 0.15
+    """Minimum innovation (meters) for the pose Kalman filter to call a tracking jump."""
+
+
+@dataclass(frozen=True)
+class LiveKeyframeConfig:
+    """Mirrors ``processing.live.keyframes.KeyframePolicy`` (specs/SESSION_COMPACTION.md)."""
+
+    depth_min_info_gain: float = 1000.0
+    color_min_novelty: float = 0.15
+    color_min_gap_s: float = 0.5
+    max_gap_s: float = 2.0
+    max_blur_px: float = 12.0
+    exposure_s: float = 0.004
+    moving_speed_mps: float = 0.05
+    moving_angular_dps: float = 5.0
+    color_window_s: float = 0.25
+
+
+@dataclass(frozen=True)
+class LiveFeedbackConfig:
+    """Laptop-to-headset feedback (keyframe notices, surface mesh, status)."""
+
+    enabled: bool = True
+    surface_interval_s: float = 2.0
+    surface_cluster_m: float = 0.08
+    surface_max_triangles: int = 40_000
+    status_interval_s: float = 1.0
 
 
 @dataclass(frozen=True)
@@ -57,6 +83,10 @@ class LivePreviewConfig:
 @dataclass(frozen=True)
 class LiveBuildConfig:
     auto_build: bool = True
+    compact_after_session: bool = True
+    """Replace the session with its compact form (specs/SESSION_COMPACTION.md) once it ends."""
+    keep_full_recording: bool = False
+    """Keep the uncompacted recording as ``<name>_full`` instead of deleting it."""
     collider_triangles: int = 100_000
     visual_triangles: int = 400_000
 
@@ -67,6 +97,8 @@ class LiveConfig:
     server: LiveServerConfig = field(default_factory=LiveServerConfig)
     volume: LiveVolumeConfig = field(default_factory=LiveVolumeConfig)
     integration: LiveIntegrationConfig = field(default_factory=LiveIntegrationConfig)
+    keyframes: LiveKeyframeConfig = field(default_factory=LiveKeyframeConfig)
+    feedback: LiveFeedbackConfig = field(default_factory=LiveFeedbackConfig)
     preview: LivePreviewConfig = field(default_factory=LivePreviewConfig)
     build: LiveBuildConfig = field(default_factory=LiveBuildConfig)
 

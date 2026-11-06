@@ -95,6 +95,23 @@ Payload rules:
 * Depth payloads are row-major in the same row order as `.raw` depth files.
 * `u16_ndc` stores `round(clip(ndc, 0, 1) * 65535)` as little-endian u16. `f16` and `f32` store the NDC value directly.
 
+## Laptop → headset feedback
+
+The connection is full-duplex. The laptop sends:
+
+| Type id | Name | Header fields | Payload |
+| --- | --- | --- | --- |
+| 20 | `KEYFRAME` | `timestamp_us`, `depth_kept`, `color_wanted`, `reason`, `novelty`, `info_gain`, `pose` (Unity camera-to-world of the depth view) | none |
+| 21 | `SURFACE_MESH` | `sequence`, `segment`, `origin` (Unity xyz), `step_m`, `vertex_count`, `triangle_count`, `index_bits` (16 or 32) | positions `vertex_count`×3 uint16 (multiples of `step_m` above `origin`), then colors `vertex_count`×4 uint8 (R, G, B, confidence), then indices `triangle_count`×3 (uint16 or uint32) |
+| 22 | `STATUS` | flat object of live counters (keyframes, color keyframes, triangles, `surface_m2`, `median_sigma_mm`, drops, tracking jumps, segment, session, recording) | none |
+
+Rules:
+
+* **Coordinates.** `SURFACE_MESH` is in the **Unity world frame**: the laptop negates Z from its Open3D world frame and reverses triangle winding.
+* **Confidence** is 255 where the Kalman posterior sigma is at most a quarter voxel and 0 at one voxel or worse.
+* **Sending never blocks the receive path.** Each connection has an outbox. `SURFACE_MESH` and `STATUS` keep only the newest pending message ("latest wins"). `KEYFRAME` notices queue, bounded to 64, dropping the oldest.
+* **Headset handling.** The headset must accept and may ignore these messages. Senders that never read them are still served.
+
 A connection may carry several sessions. `SESSION_START` with `resume: true`
 continues an open session of the same name after a reconnect.
 

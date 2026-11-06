@@ -24,6 +24,10 @@ class MessageType(IntEnum):
     HEARTBEAT = 5
     SESSION_END = 6
     BYE = 7
+    # Laptop -> headset feedback (mq3drecon.streaming.feedback)
+    KEYFRAME = 20
+    SURFACE_MESH = 21
+    STATUS = 22
 
 
 COLOR_ENCODINGS = ("jpeg", "rgba")
@@ -193,6 +197,14 @@ def encode_message(message: Message) -> bytes:
         return encode_frame(MessageType.SESSION_END, {"reason": message.reason, "dropped": message.dropped})
     if isinstance(message, Bye):
         return encode_frame(MessageType.BYE, {"reason": message.reason})
+    from mq3drecon.streaming.feedback import KeyframeNotice, LiveStatusUpdate, SurfaceMesh
+
+    if isinstance(message, KeyframeNotice):
+        return encode_frame(MessageType.KEYFRAME, message.to_header())
+    if isinstance(message, SurfaceMesh):
+        return encode_frame(MessageType.SURFACE_MESH, message.to_header(), message.data)
+    if isinstance(message, LiveStatusUpdate):
+        return encode_frame(MessageType.STATUS, dict(message.values))
     raise TypeError(f"Unsupported message type: {type(message).__name__}")
 
 
@@ -217,7 +229,15 @@ def decode_message(raw: RawMessage) -> Message:
             return Heartbeat(time_ms=int(h.get("time_ms", 0)), queued=_counts(h.get("queued")), dropped=_counts(h.get("dropped")))
         if message_type == MessageType.SESSION_END:
             return SessionEnd(reason=str(h.get("reason", "user_stop")), dropped=_counts(h.get("dropped")))
-        return Bye(reason=str(h.get("reason", "closing")))
+        if message_type == MessageType.BYE:
+            return Bye(reason=str(h.get("reason", "closing")))
+        from mq3drecon.streaming.feedback import KeyframeNotice, LiveStatusUpdate, SurfaceMesh
+
+        if message_type == MessageType.KEYFRAME:
+            return KeyframeNotice.from_header(h)  # type: ignore[return-value]
+        if message_type == MessageType.SURFACE_MESH:
+            return SurfaceMesh.from_header(h, raw.payload)  # type: ignore[return-value]
+        return LiveStatusUpdate(values=dict(h))  # type: ignore[return-value]
     except (KeyError, TypeError, ValueError) as exc:
         raise StreamProtocolError(f"Invalid {message_type.name} header: {exc}") from exc
 

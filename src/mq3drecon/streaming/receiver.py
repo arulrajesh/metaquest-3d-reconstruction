@@ -9,7 +9,7 @@ import threading
 from typing import Protocol
 
 from mq3drecon.streaming.framing import StreamProtocolError, read_frame
-from mq3drecon.streaming.messages import Message, decode_message
+from mq3drecon.streaming.messages import Message, decode_message, encode_message
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +25,58 @@ class LiveStreamHandler(Protocol):
     def on_message(self, message: Message) -> None: ...
 
     def on_disconnect(self, peer: str, error: BaseException | None) -> None: ...
+
+
+class _Outbox:
+    """Per-connection sender: replaceable messages keep only the latest per key; others queue (bounded)."""
+
+    def __init__(self, connection: socket.socket, max_queued: int = 64):
+        self._connection = connection
+        self._cond = threading.Condition()
+        self._latest: dict[str, bytes] = {}
+        self._queue: list[bytes] = []
+        self._max_queued = max_queued
+        self._closed = False
+        self.dropped = 0
+        self._thread = threading.Thread(target=self._run, name="mq3drecon-live-outbox", daemon=True)
+        self._thread.start()
+
+    def put(self, data: bytes, replace_key: str | None) -> None:
+        with self._cond:
+            if self._closed:
+                return
+            if replace_key is not None:
+                if replace_key in self._latest:
+                    self.dropped += 1
+                self._latest[replace_key] = data
+            else:
+                if len(self._queue) >= self._max_queued:
+                    self._queue.pop(0)
+                    self.dropped += 1
+                self._queue.append(data)
+            self._cond.notify()
+
+    def close(self) -> None:
+        with self._cond:
+            self._closed = True
+            self._cond.notify()
+
+    def _run(self) -> None:
+        while True:
+            with self._cond:
+                while not self._closed and not self._queue and not self._latest:
+                    self._cond.wait()
+                if self._closed:
+                    return
+                if self._queue:
+                    data = self._queue.pop(0)
+                else:
+                    key = next(iter(self._latest))
+                    data = self._latest.pop(key)
+            try:
+                self._connection.sendall(data)
+            except OSError:
+                return
 
 
 class LiveReceiver:
@@ -52,6 +104,7 @@ class LiveReceiver:
         self._accept_thread: threading.Thread | None = None
         self._reader_thread: threading.Thread | None = None
         self._connection: socket.socket | None = None
+        self._outbox: _Outbox | None = None
         self._handler_lock = threading.Lock()
         self._state_lock = threading.Lock()
         self._stopping = threading.Event()
@@ -80,6 +133,23 @@ class LiveReceiver:
         if self._accept_thread is not None:
             self._accept_thread.join(timeout=2.0)
 
+    def send(self, message: Message, *, replace_key: str | None = None) -> bool:
+        """Queue a message to the connected headset. ``replace_key``: keep only the newest message with that key.
+
+        Never blocks the caller. Returns False when no headset is connected.
+        """
+        with self._state_lock:
+            outbox = self._outbox
+        if outbox is None:
+            return False
+        outbox.put(encode_message(message), replace_key)
+        return True
+
+    @property
+    def connected(self) -> bool:
+        with self._state_lock:
+            return self._connection is not None
+
     def _accept_loop(self) -> None:
         assert self._server is not None
         while not self._stopping.is_set():
@@ -97,6 +167,7 @@ class LiveReceiver:
         connection.settimeout(self._idle_timeout_s)
         with self._state_lock:
             self._connection = connection
+            self._outbox = _Outbox(connection)
             self._reader_thread = threading.Thread(
                 target=self._read_loop, args=(connection, peer), name="mq3drecon-live-reader", daemon=True
             )
@@ -104,8 +175,10 @@ class LiveReceiver:
 
     def _close_current_connection(self) -> None:
         with self._state_lock:
-            connection, thread = self._connection, self._reader_thread
-            self._connection, self._reader_thread = None, None
+            connection, thread, outbox = self._connection, self._reader_thread, self._outbox
+            self._connection, self._reader_thread, self._outbox = None, None, None
+        if outbox is not None:
+            outbox.close()
         if connection is not None:
             try:
                 connection.shutdown(socket.SHUT_RDWR)

@@ -115,6 +115,10 @@ The D16 build steps run in this order once recording stops:
 6. Bake the texture on the GPU from keyframes. Score each texel's candidate views by how head-on the view is, times a working-distance weight peaking at 0.8–2 m. Test occlusion against depth. Blend the top K views with exposure equalization, then sharpen and level seams.
 7. Export the collider and `location.json`. Train a splat if configured.
 
+| D17 | **Keep only what is worth keeping (Kalman).** Frames are kept for useful information gain: variance reduction above the target precision, scored by a causal dry run. Color is kept for color novelty and local sharpness. Depth is stored as 16-bit PNG, left eye only. Sessions are compacted after recording. | User request, 2026-11-06. Real data: 1.8 GB → 13 MB with 98% geometry coverage. `specs/SESSION_COMPACTION.md`. |
+| D18 | **Two-way link.** The laptop streams `KEYFRAME`, `SURFACE_MESH` (Unity frame, confidence-colored), and `STATUS` back to the headset. The operator sees keyframes and generated surfaces live. | User request, 2026-11-06 (moved from FUTURE.md). |
+| D19 | **Raw MRUK color principal point**, not the offline pipeline's mirrored one. | Held-out-camera test on real data: 12% lower error. |
+
 **Outdoor strategy (D13)**
 
 | Problem outdoors | Handling |
