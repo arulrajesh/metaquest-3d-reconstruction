@@ -137,6 +137,8 @@ def run_live_capture(
                     built = build_location(
                         completed.project_dir, workspace=workspace, kind=cfg.mode, device=cfg.volume.device,
                         splats=cfg.build.splats, splat_iterations=cfg.build.splat_iterations,
+                        splat_backend=cfg.build.splat_backend, spirula_path=cfg.build.spirula_path,
+                        spirula_iterations=cfg.build.spirula_iterations,
                     )
                     print(f"[live] Location ready: {built.location_dir.name} (run 'mq3drecon serve-locations' to walk around in it)")
                 except Exception:

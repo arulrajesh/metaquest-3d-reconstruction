@@ -86,10 +86,16 @@ class LiveBuildConfig:
     compact_after_session: bool = True
     """Replace the session with its compact form (specs/SESSION_COMPACTION.md) once it ends."""
     keep_full_recording: bool = False
+    """Keep the uncompacted recording as ``<name>_full`` instead of deleting it."""
     splats: bool = True
     """Train a Gaussian splat for each location when torch + gsplat are installed."""
     splat_iterations: int = 15000  # with densification capped at 5250 (SplatSettings): +1.3 dB holdout, same splat count
-    """Keep the uncompacted recording as ``<name>_full`` instead of deleting it."""
+    splat_backend: str = "gsplat"
+    """``"gsplat"`` (built in) or ``"spirula"`` (external Spirula Studio binary; on the 2026-11-07 recapture it scored
+    29.9 dB / 36% fine detail on held-out views vs our 27.1 dB / 13%). Falls back to gsplat if Spirula is missing."""
+    spirula_path: str | None = None
+    """Path to ``spirula.exe``; None uses ``MQ3DRECON_SPIRULA`` or PATH."""
+    spirula_iterations: int = 30_000
     collider_triangles: int = 100_000
     visual_triangles: int = 400_000
 

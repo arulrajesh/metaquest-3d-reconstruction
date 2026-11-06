@@ -33,6 +33,11 @@ def load_bake_views(project_dir: Path, *, max_views: int = 400, downscale: int =
     ``downscale`` > 1 shrinks images and intrinsics (splat training runs at half resolution, so it can take
     many more views in the same memory). Sharpness is measured before downscaling.
     """
+    return list(iter_bake_views(project_dir, max_views=max_views, downscale=downscale))
+
+
+def iter_bake_views(project_dir: Path, *, max_views: int = 400, downscale: int = 1):
+    """Like ``load_bake_views`` but yields views one at a time (one decoded image in memory, for exports)."""
     intrinsics: dict = {}
     frames: list[ColorFrame] = []
     for _, message in iter_project_messages(project_dir, ReplayOptions(depth_sides=())):
@@ -42,7 +47,6 @@ def load_bake_views(project_dir: Path, *, max_views: int = 400, downscale: int =
             frames.append(message)
     if len(frames) > max_views:
         frames = [frames[i] for i in np.linspace(0, len(frames) - 1, max_views).round().astype(int)]
-    views = []
     for frame in frames:
         image = color_to_image(frame, intrinsics[frame.side])
         gray = cv2.cvtColor(cv2.resize(image.rgb, None, fx=0.25, fy=0.25, interpolation=cv2.INTER_AREA), cv2.COLOR_RGB2GRAY)
@@ -54,8 +58,7 @@ def load_bake_views(project_dir: Path, *, max_views: int = 400, downscale: int =
             intrinsic = intrinsic.astype(np.float64).copy()
             intrinsic[0, :] *= sw / w
             intrinsic[1, :] *= sh / h
-        views.append(BakeView(rgb, intrinsic, image.view.world_to_camera, image_sharpness(gray)))
-    return views
+        yield BakeView(rgb, intrinsic, image.view.world_to_camera, image_sharpness(gray))
 
 
 def build_textured_visual(

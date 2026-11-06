@@ -134,6 +134,9 @@ def _run_live(args: argparse.Namespace) -> int:
     if args.no_adb:
         server = replace(server, adb=False)
     config = replace(config, server=server)
+    if getattr(args, "splat_backend", None):
+        config = replace(config, build=replace(config.build, splat_backend=args.splat_backend,
+                                               spirula_path=str(args.spirula) if args.spirula else config.build.spirula_path))
     sessions = run_live_capture(workspace=args.workspace, config=config, show_viewer=False if args.no_viewer else None)
     print(f"[Info] {len(sessions)} session(s) recorded.")
     return 0
@@ -166,7 +169,10 @@ def _run_compact_session(args: argparse.Namespace) -> int:
 def _run_build_location(args: argparse.Namespace) -> int:
     from mq3drecon.workflows.web_location import build_location
 
-    result = build_location(args.project_dir, workspace=args.workspace, name=args.name, kind=args.kind)
+    result = build_location(
+        args.project_dir, workspace=args.workspace, name=args.name, kind=args.kind,
+        splat_backend=args.splat_backend, spirula_path=args.spirula, spirula_iterations=args.spirula_iterations,
+    )
     print(f"[Info] Location written to {result.location_dir}")
     return 0
 
@@ -324,6 +330,9 @@ def build_parser() -> argparse.ArgumentParser:
     live_parser.add_argument("--adb", type=Path, default=None, help="Path to the adb executable to use.")
     live_parser.add_argument("--no-adb", action="store_true", help="Do not run adb (rely on UDP discovery).")
     live_parser.add_argument("--no-viewer", action="store_true", help="Run without the desktop preview window.")
+    live_parser.add_argument("--splat-backend", choices=["gsplat", "spirula"], default=None,
+                             help="Splat trainer for automatic location builds (default: config, i.e. gsplat).")
+    live_parser.add_argument("--spirula", type=Path, default=None, help="Path to spirula.exe (default: MQ3DRECON_SPIRULA or PATH).")
     live_parser.set_defaults(handler=_run_live)
 
     replay_parser = subparsers.add_parser("live-replay", help="Stream a recorded MRUK project to a running 'mq3drecon live'.")
@@ -350,6 +359,10 @@ def build_parser() -> argparse.ArgumentParser:
     location_parser.add_argument("--workspace", "-w", type=Path, default=None, help="Workspace (default: ~/MQ3DRecon); output goes to <workspace>/locations/<id>.")
     location_parser.add_argument("--name", default=None, help="Location name (default: the session directory name).")
     location_parser.add_argument("--kind", choices=["indoor", "outdoor"], default="indoor", help="Capture kind (sets build resolution).")
+    location_parser.add_argument("--splat-backend", choices=["gsplat", "spirula"], default="gsplat",
+                                 help="Splat trainer: built-in gsplat, or the external Spirula Studio binary (sharper; falls back to gsplat if missing).")
+    location_parser.add_argument("--spirula", type=Path, default=None, help="Path to spirula.exe (default: MQ3DRECON_SPIRULA or PATH).")
+    location_parser.add_argument("--spirula-iterations", type=int, default=30_000, help="Spirula training steps (default 30000).")
     location_parser.set_defaults(handler=_run_build_location)
 
     serve_parser = subparsers.add_parser("serve-locations", help="Serve the VR locations gallery and WebXR viewer on localhost (and to the headset via adb reverse).")
