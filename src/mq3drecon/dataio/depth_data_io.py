@@ -8,6 +8,7 @@ from mq3drecon.models.camera_dataset import DepthDataset
 from mq3drecon.models.confidence_map import ConfidenceMap
 from mq3drecon.models.side import Side
 from mq3drecon.models.transforms import CoordinateSystem, Transforms
+from mq3drecon.dataio.depth_frame_codec import read_ndc_depth
 from mq3drecon.utils.depth_utils import compute_depth_camera_params, convert_depth_to_linear, is_ndc_depth_map_valid
 
 
@@ -40,10 +41,9 @@ class DepthDataIO:
     ) -> Optional[np.ndarray]:
         depth_map_path = self.depth_path_config.get_depth_map_path(side=side, timestamp=timestamp)
 
-        if not depth_map_path.exists():
+        depth_array = read_ndc_depth(depth_map_path, width, height)
+        if depth_array is None:
             return None
-
-        depth_array = np.fromfile(depth_map_path, dtype='<f4').reshape((height, width))
 
         if not self.is_depth_map_valid(depth_map=depth_array):
             return None

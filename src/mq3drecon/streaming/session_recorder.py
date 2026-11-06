@@ -12,6 +12,7 @@ from typing import IO, Any
 import numpy as np
 
 from mq3drecon.config.project_path_config import ProjectPathConfig
+from mq3drecon.dataio.depth_frame_codec import depth_png_path, write_ndc_depth_png
 from mq3drecon.dataio.qrc_csv_headers import COLOR_METADATA_HEADER, DEPTH_DESCRIPTOR_HEADER, STEREO_PAIR_HEADER
 from mq3drecon.models.side import Side
 from mq3drecon.streaming.messages import ColorFrame, DepthFrame, SessionStart
@@ -40,10 +41,21 @@ def _float_text(value: float) -> str:
     return "inf" if np.isinf(value) else repr(float(value))
 
 
+@dataclass(frozen=True)
+class RecordingOptions:
+    depth_format: str = "png16"
+    """``png16`` (16-bit PNG of NDC, compact) or ``raw`` (float32, as the headset writes)."""
+    depth_sides: tuple[Side, ...] = (Side.LEFT,)
+    """Depth eyes to record. Live and build paths use the left eye; the right eye is redundant."""
+
+
 class SessionRecorder:
     """Appends frames to an MRUK project directory. The directory must be new or empty."""
 
-    def __init__(self, project_dir: Path, start: SessionStart):
+    def __init__(self, project_dir: Path, start: SessionStart, options: RecordingOptions | None = None):
+        self.options = options or RecordingOptions()
+        if self.options.depth_format not in ("png16", "raw"):
+            raise ValueError(f"Unsupported depth format: {self.options.depth_format}")
         self.project_dir = Path(project_dir)
         if self.project_dir.exists() and any(self.project_dir.iterdir()):
             raise FileExistsError(f"Session directory already exists and is not empty: {self.project_dir}")
@@ -108,11 +120,16 @@ class SessionRecorder:
         self.summary.color_frames[frame.side.name.lower()] = self.summary.color_frames.get(frame.side.name.lower(), 0) + 1
 
     def write_depth(self, frame: DepthFrame) -> None:
-        if self._closed or self._is_duplicate("depth", frame.side, frame.timestamp_ms):
+        if self._closed or frame.side not in self.options.depth_sides:
+            return
+        if self._is_duplicate("depth", frame.side, frame.timestamp_ms):
             return
         path = self._paths.depth.get_depth_map_path(side=frame.side, timestamp=frame.timestamp_ms)
         path.parent.mkdir(parents=True, exist_ok=True)
-        decode_depth_ndc(frame).astype("<f4").tofile(path)
+        if self.options.depth_format == "png16":
+            write_ndc_depth_png(depth_png_path(path), decode_depth_ndc(frame))
+        else:
+            decode_depth_ndc(frame).astype("<f4").tofile(path)
 
         handle, writer = self._writer(
             self._depth_writers, frame.side, self._paths.depth.get_depth_descriptor_path(frame.side), DEPTH_DESCRIPTOR_HEADER

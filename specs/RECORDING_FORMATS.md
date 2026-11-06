@@ -97,6 +97,21 @@ It returns top-down RGBA for both formats.
 
 ---
 
+# Quest Depth Frame Files
+
+A depth frame for `timestamp_ms` is stored in the side's depth directory in one
+of two formats:
+
+* `<timestamp_ms>.raw`: float32 little-endian NDC values, row-major, exactly as the headset writes them;
+* `<timestamp_ms>.png`: a single-channel **16-bit PNG** holding `round(clip(ndc, 0, 1) * 65535)`. Laptop recordings use this compact form by default. The precision is about 0.6 mm at 2 m and 4 mm at 5 m with a 0.1 m near plane.
+
+Readers must prefer `.raw` when both exist, and must decode `.png` to float32
+`value / 65535`. All depth file reading must go through
+`mq3drecon.dataio.depth_frame_codec`. A recording may contain depth for only one
+eye; laptop recordings store the left eye by default.
+
+---
+
 # MRUK Intrinsics Schema
 
 The MRUK intrinsics reader must support the observed nested schema:

@@ -12,6 +12,7 @@ import numpy as np
 import pandas as pd
 
 from mq3drecon.config.project_path_config import ProjectPathConfig
+from mq3drecon.dataio.depth_frame_codec import read_ndc_depth
 from mq3drecon.dataio.mruk_frame_codec import RAW_SUFFIX, read_mruk_frame_rgba
 from mq3drecon.models.side import Side
 from mq3drecon.streaming.messages import ColorFrame, DepthFrame, Message, Pose, SessionEnd, SessionStart
@@ -72,11 +73,10 @@ def _depth_frames(paths: ProjectPathConfig, side: Side, options: ReplayOptions) 
         return
     for row in pd.read_csv(descriptor_path).itertuples(index=False):
         timestamp_ms = int(row.timestamp_ms)
-        path = paths.depth.get_depth_map_path(side=side, timestamp=timestamp_ms)
-        if not path.exists():
-            continue
         width, height = int(row.width), int(row.height)
-        ndc = np.fromfile(path, dtype="<f4").reshape(height, width)
+        ndc = read_ndc_depth(paths.depth.get_depth_map_path(side=side, timestamp=timestamp_ms), width, height)
+        if ndc is None:
+            continue
         yield timestamp_ms * 1000, DepthFrame(
             side=side,
             timestamp_ms=timestamp_ms,

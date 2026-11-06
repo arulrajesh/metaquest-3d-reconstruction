@@ -134,7 +134,7 @@ directory.
   * `jpeg` frames are stored as received: `<timestamp_us>.jpg`, top-down. A `bottom_up` JPEG is decoded, flipped, and re-encoded at quality 95.
   * `rgba` frames are stored as bottom-up `<timestamp_us>.rgba`.
   * Metadata rows use the headset app's column set, with `format` `JPEG` or `RGBA32`.
-* **Depth:** frames are decoded to float32 NDC and stored as `<timestamp_ms>.raw`, with headset-identical descriptor rows.
+* **Depth:** frames are stored for the configured eyes only (default: left). The default format is `<timestamp_ms>.png` (16-bit NDC); `raw` gives float32 `<timestamp_ms>.raw` (`RecordingOptions`). Descriptor rows are identical to the headset's.
 * **Duplicates:** a repeated frame (same kind, side, and timestamp) is ignored and counted.
 * **Finalizing:**
   * writes `mruk_stereo_pairs.csv` by greedy one-to-one nearest-timestamp pairing (smallest difference first, rows ordered by left timestamp);
