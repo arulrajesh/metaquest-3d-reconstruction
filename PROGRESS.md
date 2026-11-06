@@ -18,11 +18,29 @@ Last updated: 2026-11-06
 
 ## Current state (read first)
 
-- **The first real capture (`20261106_120328`) was rejected by the user ("garbage, looks nothing like reality") and must not be used.**
-  - Why it was bad: stock app at 3 fps with motion blur; the boundary prompt reset tracking; only a 14 s usable window (82 depth and 21 color frames); vertex colors only.
-  - The laptop copies were deleted.
-  - The user was asked to delete the headset copy themselves (we may not permanently delete user data):
-    `adb -s 192.168.0.86:5555 shell rm -rf /sdcard/Android/data/com.t34400.QuestRealityCapture/files/20261106_120328`
+- **The first streamed recapture is done (2026-11-06, 17:55): `~/MQ3DRecon/sessions/20261106_175535_2`.** The streaming app, live fusion and headset feedback all ran end to end.
+  - **Stream:** direct Wi-Fi TCP (endpoint file) at about 5 color and 7.5 depth fps, with 0 headset drops. Fusion takes 20–50 ms per keyframe.
+  - **Compaction:** 309 MB → 84 MB, keeping 143 color and 500 depth keyframes over 144 s.
+  - **Session split, caused by me:** restarting the receiver mid-session (to move the app off adb reverse) split off the first 14 s into an unfinalized `20261106_175535`. The app resumed into `..._2`.
+    - Lesson: never restart `mq3drecon live` while the app is recording.
+    - Improvement to make: the receiver should resume into the existing session folder, not create `_2`.
+  - Closing the Open3D preview window ends `mq3drecon live`. That happens after the session is saved.
+  - **Floor:** the boundaryless app's tracking origin is about 0.6 m *below* the floor (head y between 1.4 and 2.4). The floor prior correctly declined, and the lowest substantial horizontal surface (0.63 m) is right.
+  - **Real-mesh UV unwrap had three failures, all fixed (`8899b9e`, `6291301`):**
+    - edge/vertex non-manifold (fins, bowties);
+    - inconsistent winding after quadric decimation (the fused mesh is orientable, the decimated one isn't): BFS `orient_consistently`;
+    - a mirrored two-triangle "pillow" (same vertex set, opposite winding) that passes Open3D's checks but fails UVAtlas: `same_vertex_set_mask`.
+    - UVAtlas can also *crash the process* (access violation) on degenerate input. Never feed it uncleaned meshes, even in tests.
+  - **Locations:**
+    - `20261106_175535_2`: vertex colors (fallback) plus splats.
+    - `recapture-2026-11-06-textured`: the textured rebuild.
+  - **Quality vs the user's photoreal bar: not there yet.**
+    - The geometry is room-shaped: walls, ceiling, corners and a doorway.
+    - The splats (705k) are smeared with floaters: train PSNR 23.7, holdout 21.8 (synthetic: 36).
+    - Low *train* PSNR means the views disagree: likely pose error for the passthrough cameras, auto-exposure, and blur.
+    - Next: per-view pose and exposure optimization in `splat_train.py`, added as options (`pose_opt`, `exposure_opt`) and A/B-tested on this session (`scratchpad uvdebug/splat_ab.py`).
+    - Also: compaction keeps about 1 color frame/s, tuned for TSDF. Consider keeping more sharp color frames for splats.
+- The first stock-app capture (`20261106_120328`) was rejected ("garbage") and deleted. The user deleted all old stock-app recordings from the headset (2026-11-06), freeing 15 GB.
 - **The streaming APK builds (2026-11-06, fork `fb37a71`).** `Builds/QuestRealityCapture-live.apk` is 64 MB and installs as `com.arulrajesh.QuestRealityCaptureLive` ("QuestRealityCapture Live"). A first build takes about 15 min; later builds take about 3–8. `Tools/watch_build.ps1` shows a live progress bar. Issues found on the first real build:
   - Our only compile error: `Camera.main` resolved to the `RealityLog.Camera` namespace (fixed).
   - **Expected on a fresh `Library/`:** builtin ShaderGraph 17.4.0 fails its first compile ("GUID could not be found"). Unity's API updater then rewrites it to `UnityEngine.GUID`, and the recompile succeeds. **Don't revert those PackageCache edits.**
@@ -30,19 +48,20 @@ Last updated: 2026-11-06
     - Fix: copy `Editor/Data/Resources/PackageManager/BuiltInPackages/<pkg>` to `Library/PackageCache/<pkg>@<first 12 chars of <pkg>.sha1>`.
   - Unity needed `%LOCALAPPDATA%\Unity\Caches` to exist (now created).
   - The build restarts the adb server, which drops wireless adb. Afterwards, run `adb connect 192.168.0.86:5555`.
-  - **Not yet installed:** the headset is full (234 MB free of 103 GB). The user has to delete the old stock-app recordings (15 GB) first; commands are below.
+  - **Installed on the headset (2026-11-06).** The user granted spatial-data, headset-camera and camera permissions. The **left controller menu button** starts and stops recording.
 - **Unity install, done (2026-11-06).**
   - Unity Hub 3.22.5 is installed by winget as an **MSIX** app at `C:\Program Files\WindowsApps\UnityTechnologies.UnityHub_3.22.5.65535_x64__2vrhnee42bhxm\app\Unity Hub.exe`.
   - The Hub CLI only works after `Remove-Item Env:ELECTRON_RUN_AS_NODE`. VS Code sets it to 1, which turns the Hub into plain Node ("Cannot find module '--headless'").
   - The editor install path is set to `C:\Users\Arul\Unity\Hub\Editor` (no admin needed). Install command: `& $hub -- --headless install --version 6000.4.5f1 --changeset cc83ebd631f8 --module android --childModules`.
   - **The user must sign in to Unity Hub once** (a free Unity ID) and activate a Personal license. Batch builds refuse to run without one, and Personal licenses can't be activated from the command line.
-- **Next user action:** sign in to Unity Hub. Then:
-  1. Run `powershell -ExecutionPolicy Bypass -File QuestRealityCapture\Tools\build_and_install.ps1 -Device 192.168.0.86:5555`.
-  2. Fix whatever the first real compile finds.
-  3. Run `mq3drecon live` and do a **recapture with the streaming build**: boundaryless, slow and systematic, covering the floor and ceiling, watching the overlay.
-- **Realism gap (the user's main complaint).** Even a good capture will not look real with vertex colors. Priority after the recapture:
-  - (a) ~~GPU texture bake (D16)~~: **done**; it applies automatically to the recapture;
-  - (b) ~~Gaussian splats~~: **done** with gsplat (the user chose it, 2026-11-06); they apply automatically to the recapture;
+- **Capture routine:**
+  1. Run `mq3drecon live --adb <SDK adb>`. It pushes the endpoint once the app has been launched at least once.
+  2. Launch "QuestRealityCapture Live".
+  3. Press the left menu button to record and again to stop. The build runs automatically.
+  4. View at `localhost:8080`, served by `mq3drecon serve-locations --adb <SDK adb>`; this needs `adb reverse tcp:8080` while the headset is awake.
+- **Realism gap (the user's main complaint):**
+  - (a) GPU texture bake: **done**, and it now works on real meshes;
+  - (b) Gaussian splats: done, but real-data quality needs pose and exposure optimization (in progress);
   - (c) FoundationStereo depth (M4) for better geometry.
 
 ## Done this session (2026-11-06)
