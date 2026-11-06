@@ -40,6 +40,14 @@ class SplatSettings:
     # to 75% 30.9 dB / 1.43M; 15k capped at 5250 30.95 dB / 893k; 30k to 75% 31.4 dB / 2.09M.
     refine_stop_iter: int | None = None
     max_refine_iter: int = 5250
+    # Densification strategy. "default": gsplat DefaultStrategy (clone/split by view-space gradient; absgrad
+    # uses absolute gradients, which in gsplat's Mip-NeRF 360 ablation is sharper with fewer splats).
+    # "mcmc": 3DGS-MCMC, relocates splats under a hard cap (mcmc_cap); best quality per splat in that ablation.
+    strategy: str = "default"
+    absgrad: bool = False
+    mcmc_cap: int = 1_000_000
+    mcmc_opacity_reg: float = 0.01
+    mcmc_scale_reg: float = 0.01
 
 
 @dataclass(frozen=True)
@@ -83,7 +91,11 @@ def train_splats(
     init_colors: np.ndarray,
     settings: SplatSettings | None = None,
     device: str = "cuda",
+    debug_hook=None,
 ) -> SplatResult:
+    """Train splats on ``views``. ``debug_hook(render, sh_degree)``, if given, is called after training (no grad)
+    with the internal renderer: ``render(index, sh_degree, full_resolution=True)`` returns an (H, W, 3) tensor
+    using the view's learned pose/exposure corrections, for evaluation scripts."""
     import cv2
     import torch
 
@@ -91,7 +103,7 @@ def train_splats(
 
     prepare_gsplat_build()  # before gsplat is imported: its CUDA kernels JIT-compile on first use
     from gsplat import rasterization
-    from gsplat.strategy import DefaultStrategy
+    from gsplat.strategy import DefaultStrategy, MCMCStrategy
     from scipy.spatial import cKDTree
 
     settings = settings or SplatSettings()
@@ -129,12 +141,16 @@ def train_splats(
     n = len(points)
     centers = np.array([np.linalg.inv(v.world_to_camera)[:3, 3] for v in views])
     scene_scale = float(np.linalg.norm(centers - centers.mean(axis=0), axis=1).max() * 1.1) or 1.0
+    use_mcmc = settings.strategy == "mcmc"
+    if settings.strategy not in ("default", "mcmc"):
+        raise ValueError(f"unknown splat strategy {settings.strategy!r}")
+    init_opacity = 0.5 if use_mcmc else 0.1  # gsplat's MCMC preset starts opaque and relies on opacity_reg
 
     params = torch.nn.ParameterDict({
         "means": torch.nn.Parameter(torch.tensor(points, dtype=torch.float32, device=device)),
         "scales": torch.nn.Parameter(torch.tensor(np.repeat(log_scale[:, None], 3, axis=1), dtype=torch.float32, device=device)),
         "quats": torch.nn.Parameter(torch.tensor(np.tile([1.0, 0, 0, 0], (n, 1)), dtype=torch.float32, device=device)),
-        "opacities": torch.nn.Parameter(torch.full((n,), math.log(0.1 / 0.9), dtype=torch.float32, device=device)),
+        "opacities": torch.nn.Parameter(torch.full((n,), math.log(init_opacity / (1 - init_opacity)), dtype=torch.float32, device=device)),
         "sh0": torch.nn.Parameter(torch.tensor((colors - 0.5) / SH_C0, dtype=torch.float32, device=device)[:, None, :]),
         "shN": torch.nn.Parameter(torch.zeros((n, (settings.sh_degree + 1) ** 2 - 1, 3), dtype=torch.float32, device=device)),
     })
@@ -144,9 +160,17 @@ def train_splats(
     refine_stop = settings.refine_stop_iter
     if refine_stop is None:
         refine_stop = min(int(settings.iterations * 0.75), settings.max_refine_iter)
-    strategy = DefaultStrategy(verbose=False, refine_stop_iter=min(refine_stop, settings.iterations))
-    strategy.check_sanity(params, optimizers)
-    state = strategy.initialize_state(scene_scale=scene_scale)
+    if use_mcmc:
+        strategy = MCMCStrategy(cap_max=settings.mcmc_cap, refine_stop_iter=min(int(settings.iterations * 0.83), settings.iterations), verbose=False)
+        strategy.check_sanity(params, optimizers)
+        state = strategy.initialize_state()
+    else:
+        strategy = DefaultStrategy(
+            verbose=False, refine_stop_iter=min(refine_stop, settings.iterations), absgrad=settings.absgrad,
+            grow_grad2d=0.0008 if settings.absgrad else 0.0002,  # absolute gradients are larger: gsplat's recommended threshold
+        )
+        strategy.check_sanity(params, optimizers)
+        state = strategy.initialize_state(scene_scale=scene_scale)
 
     # Per-view corrections, outside the Gaussian ParameterDict (the densification strategy must not see them).
     n_views = len(views)
@@ -173,13 +197,20 @@ def train_splats(
         inverse_delta[:3, 3] = -rotation.T @ translation
         return inverse_delta @ viewmat
 
-    def render(index: int, sh_degree: int, *, corrected: bool = True):
+    full_h, full_w = views[0].rgb.shape[:2]
+
+    def render(index: int, sh_degree: int, *, corrected: bool = True, full_resolution: bool = False):
         viewmat = corrected_viewmat(index) if corrected else viewmats_t[index]
+        if full_resolution:
+            k = torch.tensor(views[index].intrinsic[None], dtype=torch.float32, device=device)
+            size = {"width": full_w, "height": full_h}
+        else:
+            k, size = ks_t[index : index + 1], {"width": width, "height": height}
         out, _alpha, info = rasterization(
             means=params["means"], quats=params["quats"], scales=torch.exp(params["scales"]),
             opacities=torch.sigmoid(params["opacities"]), colors=torch.cat([params["sh0"], params["shN"]], dim=1),
-            viewmats=viewmat[None], Ks=ks_t[index : index + 1], width=width, height=height,
-            sh_degree=sh_degree, packed=False,
+            viewmats=viewmat[None], Ks=k, **size,
+            sh_degree=sh_degree, packed=False, absgrad=settings.absgrad and not use_mcmc,
         )
         image = out[0]
         if corrected and settings.exposure_opt:
@@ -192,15 +223,25 @@ def train_splats(
         image, info = render(index, sh_degree)
         target = images_t[index]
         loss = 0.8 * torch.abs(image - target).mean() + 0.2 * (1.0 - _ssim(image, target))
-        strategy.step_pre_backward(params, optimizers, state, step, info)
+        if use_mcmc:  # gsplat's MCMC preset: keep splats sparse and small so relocation has room to work
+            loss = loss + settings.mcmc_opacity_reg * torch.sigmoid(params["opacities"]).mean()
+            loss = loss + settings.mcmc_scale_reg * torch.exp(params["scales"]).mean()
+        else:
+            strategy.step_pre_backward(params, optimizers, state, step, info)
         loss.backward()
         for optimizer in [*optimizers.values(), *extra_optimizers]:
             optimizer.step()
             optimizer.zero_grad(set_to_none=True)
         means_decay.step()
-        strategy.step_post_backward(params, optimizers, state, step, info, packed=False)
+        if use_mcmc:
+            strategy.step_post_backward(params, optimizers, state, step, info, lr=means_decay.get_last_lr()[0])
+        else:
+            strategy.step_post_backward(params, optimizers, state, step, info, packed=False)
 
     with torch.no_grad():
+        if debug_hook is not None:
+            debug_hook(lambda index, sh, **kw: render(index, sh, **kw)[0], settings.sh_degree)
+
         def mean_psnr(indices) -> float:
             if len(indices) == 0:
                 return float("nan")
