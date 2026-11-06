@@ -43,7 +43,10 @@ Last updated: 2026-11-06
   - **Done after that:**
     - Harmonic color fill for unseen areas (`66babe0`): placeholder-grey vertices 29k → 9.9k.
     - Splat defaults are now 15k iterations with densification capped at 5250 (`d6830a2`): +1.3 dB holdout at the same splat count, ~5.5 min.
-    - `recapture-2026-11-06-v3` is built with both. Superseded, for the user to delete: `recapture-2026-11-06`.
+    - **`recapture-2026-11-06-v3` is the current location**, built with both.
+      - Splats: 918k (29 MB), holdout 31.3 dB.
+      - Exported DC-only renders at never-trained views score 26–33 dB (`uvdebug/holdout_v3.jpg`).
+      - Superseded, for the user to delete: `recapture-2026-11-06`.
   - **Next quality steps:**
     - SH in the export: `.splat` drops view-dependent color. SPZ or `.ply` would keep it, but test Spark loading in a browser first.
     - More color keyframes for splats: compaction keeps ~1/s, tuned for TSDF. This needs a new capture to measure.
