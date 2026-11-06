@@ -80,6 +80,31 @@ Last updated: 2026-11-06
       - the build trains splats on up to 2000 half-res views, uint8 on the GPU (`0179244`);
       - the live app requests 1728×1728 and sends 10 color pairs/s (fork `3e47724`). The APK rebuild is in progress.
     - **Next: install and recapture** in bright light, moving slowly, with close-up passes. Compare against Hyperscape.
+  - **Recapture 2026-11-07 (`sessions/20261107_012159`).** 90 s with the new app: 1728×1728 frames, 6.6 color frames/s/eye (354 headset encode drops, harmless). Compaction kept 287+278 color and 408 depth keyframes, 197 MB.
+    - The receiver had built a short test session and this one **concurrently**. They overflowed the GPU and neither finished in an hour. Fixed by serialising post-processing (`7fcf3a0`).
+    - Rebuilt alone as **`recapture-2026-11-07`** in 14 min: 565 splat views, 729k splats, holdout 31.47 dB (half res, with SH).
+  - **Spirula Studio trial (user approved, 2026-11-07).** Binary at `C:\Users\Arul\tools\spirula-2026.10.30\app\spirula.exe` (GPL-3.0, Vulkan).
+    - Fed with `scratchpad uvdebug/export_nerfstudio.py`: Nerfstudio `transforms.json` of our poses and intrinsics, 1728² images, seed PLY, our holdout views excluded.
+    - Command: `spirula train 3dgs --data-format nerfstudio --scene-center none --orientation-method none --train-resolution-divisor 2 --cap-max 1000000 --num-iterations 30000`. 8 min 50 s, 1M splats.
+    - The output `splat.ply` is a standard 3DGS PLY (SH3) in our world frame (identity transform).
+    - The process keeps serving its viewer after training, so kill it.
+    - **Held-out comparison** (70 views, native 1728²; `uvdebug/compare_spirula.py`, side-by-sides in `uvdebug/compare_spirula.jpg`):
+
+      | Model | Holdout PSNR | Fine detail kept |
+      | --- | --- | --- |
+      | ours, DC (current export) | 27.12 dB | 13% |
+      | Spirula, DC | 26.84 dB | 24% |
+      | **Spirula, SH3** | **29.87 dB** | **36%** |
+
+      Visually, Spirula with SH3 is clearly sharpest (printer, curtain, grille, cot net); ours shows doubled edges.
+    - **Two lessons:**
+      1. View-dependent color (SH) is worth ~3 dB, and our `.splat` export drops it.
+      2. Spirula's trainer (MCMC/IGS+/MRNF densification + PPISP/bilateral-grid exposure) beats ours.
+    - **Test location `recapture-2026-11-07-spirula`**: Spirula's PLY (248 MB) served as `scene.ply`; Spark loads it with SH. **The user should compare it in the headset** against `recapture-2026-11-07`.
+    - **Next:**
+      - make Spirula an optional splat backend in `build_location` (export → train → import);
+      - write a compressed SH format (SPZ) so the headset doesn't load 248 MB;
+      - measure Quest frame rate at 1M SH3 splats.
   - **Next quality steps:**
     - SH in the export: `.splat` drops view-dependent color. SPZ or `.ply` would keep it, but test Spark loading in a browser first.
     - More color keyframes for splats: compaction keeps ~1/s, tuned for TSDF. This needs a new capture to measure.
