@@ -11,6 +11,7 @@ from mq3drecon.workflows.conversion import (
     run_rgba_to_png,
     run_yuv_to_rgb,
 )
+from mq3drecon.workflows.live_reconstruction import run_live_capture, run_live_replay, run_make_synthetic_capture
 from mq3drecon.workflows.reconstruction import run_reconstruct_scene
 from mq3drecon.workflows.visualization import run_visualize_camera_trajectories
 
@@ -22,6 +23,9 @@ __all__ = [
     "run_color_aligned_depth_to_png",
     "run_depth_to_linear",
     "run_foundation_stereo_depth",
+    "run_live_capture",
+    "run_live_replay",
+    "run_make_synthetic_capture",
     "run_reconstruct_scene",
     "run_rgba_to_png",
     "run_visualize_camera_trajectories",

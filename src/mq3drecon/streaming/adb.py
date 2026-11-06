@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import os
 import shutil
 import subprocess
@@ -79,3 +80,86 @@ def setup_adb_reverse(tcp_port: int, *, adb_path: Path | None = None) -> AdbReve
     if not serials:
         return AdbReverseResult(adb_path=adb, detail="no USB headset detected (Wi-Fi discovery still works)")
     return AdbReverseResult(adb_path=adb, devices=configured, detail=f"adb reverse tcp:{tcp_port} on {configured}")
+
+
+ENDPOINT_FILE_NAME = "live_stream_endpoint.json"
+_IP_PORT = re.compile(r"^(\d{1,3}(?:\.\d{1,3}){3}):\d+$")
+_INET = re.compile(r"inet (\d{1,3}(?:\.\d{1,3}){3})/")
+
+
+@dataclass(frozen=True)
+class AdbDeviceSetup:
+    serial: str
+    reverse_ok: bool
+    device_ip: str | None
+    endpoint_host: str | None
+    endpoint_pushed: bool
+
+
+def device_ip(adb: Path, serial: str) -> str | None:
+    """Headset Wi-Fi address: from an ``ip:port`` wireless serial, else from ``ip addr`` on wlan0."""
+    match = _IP_PORT.match(serial)
+    if match:
+        return match.group(1)
+    try:
+        result = _run(adb, "-s", serial, "shell", "ip", "-f", "inet", "addr", "show", "wlan0")
+    except (OSError, subprocess.SubprocessError):
+        return None
+    found = _INET.search(result.stdout)
+    return found.group(1) if found else None
+
+
+def local_ip_towards(remote_ip: str) -> str | None:
+    """The laptop address the OS would use to reach ``remote_ip`` (no packets are sent)."""
+    import socket
+
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            sock.connect((remote_ip, 9))
+            return str(sock.getsockname()[0])
+    except OSError:
+        return None
+
+
+def push_endpoint(adb: Path, serial: str, host: str, port: int, package: str) -> bool:
+    import json
+    import tempfile
+
+    payload = json.dumps({"host": host, "port": port})
+    remote = f"/sdcard/Android/data/{package}/files/{ENDPOINT_FILE_NAME}"
+    with tempfile.TemporaryDirectory() as tmp:
+        local = Path(tmp) / ENDPOINT_FILE_NAME
+        local.write_text(payload, encoding="utf-8")
+        try:
+            result = _run(adb, "-s", serial, "push", str(local), remote)
+        except (OSError, subprocess.SubprocessError):
+            return False
+    return result.returncode == 0
+
+
+def setup_adb_connection(
+    tcp_port: int,
+    *,
+    adb_path: Path | None = None,
+    push: bool = True,
+    package: str = "com.t34400.QuestRealityCapture",
+) -> tuple[Path | None, list[AdbDeviceSetup]]:
+    """For every adb device: ``adb reverse`` plus (wireless) push of the laptop endpoint. Never raises."""
+    adb = find_adb(adb_path)
+    if adb is None:
+        return None, []
+    try:
+        serials = list_devices(adb)
+    except (OSError, subprocess.SubprocessError):
+        return adb, []
+    setups = []
+    for serial in serials:
+        try:
+            reverse = _run(adb, "-s", serial, "reverse", f"tcp:{tcp_port}", f"tcp:{tcp_port}").returncode == 0
+        except (OSError, subprocess.SubprocessError):
+            reverse = False
+        ip = device_ip(adb, serial)
+        host = local_ip_towards(ip) if ip else None
+        pushed = bool(push and host and push_endpoint(adb, serial, host, tcp_port, package))
+        setups.append(AdbDeviceSetup(serial=serial, reverse_ok=reverse, device_ip=ip, endpoint_host=host, endpoint_pushed=pushed))
+    return adb, setups

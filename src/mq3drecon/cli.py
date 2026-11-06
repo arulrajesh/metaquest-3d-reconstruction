@@ -14,6 +14,9 @@ from mq3drecon.workflows import (
     run_color_aligned_depth_to_png,
     run_foundation_stereo_depth,
     run_depth_to_linear,
+    run_live_capture,
+    run_live_replay,
+    run_make_synthetic_capture,
     run_reconstruct_scene,
     run_rgba_to_png,
     run_visualize_camera_trajectories,
@@ -114,6 +117,37 @@ def _run_export_colmap(args: argparse.Namespace) -> int:
 
 def _run_visualize_cameras(args: argparse.Namespace) -> int:
     run_visualize_camera_trajectories(project_dir=args.project_dir)
+    return 0
+
+
+def _run_live(args: argparse.Namespace) -> int:
+    from dataclasses import replace
+
+    from mq3drecon.config.live_config import load_live_config
+
+    config = load_live_config(args.config, args.mode)
+    server = config.server
+    if args.port is not None:
+        server = replace(server, port=args.port)
+    if args.adb is not None:
+        server = replace(server, adb_path=str(args.adb))
+    if args.no_adb:
+        server = replace(server, adb=False)
+    config = replace(config, server=server)
+    sessions = run_live_capture(workspace=args.workspace, config=config, show_viewer=False if args.no_viewer else None)
+    print(f"[Info] {len(sessions)} session(s) recorded.")
+    return 0
+
+
+def _run_live_replay(args: argparse.Namespace) -> int:
+    sent = run_live_replay(args.project_dir, host=args.host, port=args.port, speed=args.speed)
+    print(f"[Info] Replayed {args.project_dir} ({sent / 1e6:.1f} MB).")
+    return 0
+
+
+def _run_make_synthetic_capture(args: argparse.Namespace) -> int:
+    path = run_make_synthetic_capture(args.output_dir, frames=args.frames, color_format=args.color_format)
+    print(f"[Info] Synthetic capture written to {path}")
     return 0
 
 
@@ -254,6 +288,29 @@ def build_parser() -> argparse.ArgumentParser:
         help="Path to the project directory containing QRC data.",
     )
     visualize_parser.set_defaults(handler=_run_visualize_cameras)
+
+    live_parser = subparsers.add_parser("live", help="Receive a live headset stream, record it, and show the model as it grows.")
+    live_parser.add_argument("--workspace", "-w", type=Path, default=None, help="Workspace directory (default: ~/MQ3DRecon). Sessions go to <workspace>/sessions.")
+    live_parser.add_argument("--config", "-c", type=Path, default=None, help="Optional YAML file with a 'live' section.")
+    live_parser.add_argument("--mode", choices=["indoor", "outdoor"], default=None, help="Capture preset (default: indoor, or the config file's mode).")
+    live_parser.add_argument("--port", type=int, default=None, help="TCP port to listen on (default 9870).")
+    live_parser.add_argument("--adb", type=Path, default=None, help="Path to the adb executable to use.")
+    live_parser.add_argument("--no-adb", action="store_true", help="Do not run adb (rely on UDP discovery).")
+    live_parser.add_argument("--no-viewer", action="store_true", help="Run without the desktop preview window.")
+    live_parser.set_defaults(handler=_run_live)
+
+    replay_parser = subparsers.add_parser("live-replay", help="Stream a recorded MRUK project to a running 'mq3drecon live'.")
+    replay_parser.add_argument("--project-dir", "-p", type=_existing_project_dir, required=True, help="Recorded MRUK project directory.")
+    replay_parser.add_argument("--host", default="127.0.0.1", help="Receiver host (default 127.0.0.1).")
+    replay_parser.add_argument("--port", type=int, default=9870, help="Receiver TCP port (default 9870).")
+    replay_parser.add_argument("--speed", type=float, default=1.0, help="Playback speed; 0 sends as fast as possible.")
+    replay_parser.set_defaults(handler=_run_live_replay)
+
+    synthetic_parser = subparsers.add_parser("make-synthetic-capture", help="Write a synthetic room capture for testing without a headset.")
+    synthetic_parser.add_argument("--output-dir", "-o", type=Path, required=True, help="New or empty output directory.")
+    synthetic_parser.add_argument("--frames", type=int, default=60, help="Number of frames per camera.")
+    synthetic_parser.add_argument("--color-format", choices=["rgba", "jpg"], default="rgba", help="Color frame format.")
+    synthetic_parser.set_defaults(handler=_run_make_synthetic_capture)
 
     return parser
 
