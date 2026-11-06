@@ -101,8 +101,11 @@ Last updated: 2026-11-06
       1. View-dependent color (SH) is worth ~3 dB, and our `.splat` export drops it.
       2. Spirula's trainer (MCMC/IGS+/MRNF densification + PPISP/bilateral-grid exposure) beats ours.
     - **Test location `recapture-2026-11-07-spirula`**: Spirula's PLY (248 MB) served as `scene.ply`; Spark loads it with SH. **The user should compare it in the headset** against `recapture-2026-11-07`.
+    - **Done: Spirula is an optional splat backend (`c49b4de`).**
+      - Use `build-location --splat-backend spirula --spirula <exe>` or `live --splat-backend spirula`.
+      - It falls back to gsplat if the binary is missing or fails, writes `scene.ply` (SH3), and scores held-out views with gsplat.
+      - An end-to-end run on the real session is in progress (scratch workspace `ws_spirula_e2e`).
     - **Next:**
-      - make Spirula an optional splat backend in `build_location` (export → train → import);
       - write a compressed SH format (SPZ) so the headset doesn't load 248 MB;
       - measure Quest frame rate at 1M SH3 splats.
   - **Next quality steps:**
