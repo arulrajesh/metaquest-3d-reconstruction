@@ -55,12 +55,21 @@ class SyntheticCaptureSpec:
     near_z: float = 0.1
     far_z: float = float("inf")
     base_time_us: int = 1_781_849_907_000_000
+    texture: str = "smooth"
+    """``smooth`` or ``checker`` (10 cm brightness checks on top: tests texture sharpness)."""
 
 
-def scene_color(points_unity: np.ndarray) -> np.ndarray:
-    """Smooth, position-unique RGB in [0, 1] (mirror or offset errors show up as color errors)."""
+CHECKER_SIZE_M = 0.10
+
+
+def scene_color(points_unity: np.ndarray, texture: str = "smooth") -> np.ndarray:
+    """Position-unique RGB in [0, 1] (mirror or offset errors show up as color errors).
+
+    ``checker`` modulates brightness with 10 cm checks: detail that vertex colors on a
+    few-centimeter mesh blur, but a correct texture bake reproduces.
+    """
     p = np.asarray(points_unity, dtype=np.float64)
-    return np.stack(
+    color = np.stack(
         [
             0.5 + 0.35 * np.sin(1.9 * p[..., 0] + 0.4),
             0.5 + 0.35 * np.sin(2.3 * p[..., 1] + 1.3),
@@ -68,6 +77,12 @@ def scene_color(points_unity: np.ndarray) -> np.ndarray:
         ],
         axis=-1,
     )
+    if texture == "checker":
+        # Half-cell phase: the room walls (at multiples of 10 cm) sit mid-cell, so millimeter
+        # reconstruction noise along a wall normal cannot flip the reference color.
+        cells = np.floor(p / CHECKER_SIZE_M + 0.5).astype(np.int64).sum(axis=-1) % 2
+        color = color * (0.55 + 0.45 * cells[..., None])
+    return color
 
 
 def surface_distance(points_unity: np.ndarray) -> np.ndarray:
@@ -205,7 +220,7 @@ def _write_color_side(out, side, eye_x, spec, color_obj, k_color, pair_rows) -> 
             ts = _color_ts(spec, i, side)
             position, rotation = _camera_pose((ts - spec.base_time_us) / 1e6, spec, np.array([eye_x, -0.02, 0.05]))
             _, hits = render(position, rotation, k_color, size, size)
-            rgb = (scene_color(hits) * 255.0 + 0.5).astype(np.uint8)
+            rgb = (scene_color(hits, spec.texture) * 255.0 + 0.5).astype(np.uint8)
             rgba = np.concatenate([rgb, np.full(rgb.shape[:2] + (1,), 255, np.uint8)], axis=-1)
             if spec.color_format == "jpg":
                 file_name, fmt = f"{ts}.jpg", "JPEG"

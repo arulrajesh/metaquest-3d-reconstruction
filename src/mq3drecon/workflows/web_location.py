@@ -91,6 +91,9 @@ def build_location(
     kind: str = "indoor",
     visual_triangles: int = 400_000,
     collider_triangles: int = 100_000,
+    textured: bool = True,
+    textured_triangles: int = 150_000,
+    texture_size: int = 4096,
     device: str = "cuda:0",
 ) -> LocationResult:
     from mq3drecon.processing.web_location.mesh_build import fuse_session
@@ -117,11 +120,29 @@ def build_location(
 
     colors = fill_uncolored(built.mesh.vertices, built.mesh.triangles, built.mesh.colors, built.mesh.color_valid)
     mesh = remove_debris(to_open3d(dc_replace(built.mesh, colors=colors)))
-    visual = decimate(mesh, visual_triangles)
     collider = decimate(mesh, collider_triangles)
-    floor_y, floor_source = estimate_floor_y(visual, built.trajectory[:, 1])
+    floor_y, floor_source = estimate_floor_y(decimate(mesh, visual_triangles), built.trajectory[:, 1])
     spawn = spawn_from_camera(built.first_view.camera_to_world, floor_y)
-    write_glb(visual, out / "visual.glb", with_colors=True)
+    texture_stats: dict = {"textured": False}
+    views = []
+    if textured:
+        from mq3drecon.processing.web_location.textured_visual import build_textured_visual, load_bake_views
+
+        views = load_bake_views(project_dir)
+    if views:
+        from mq3drecon.processing.web_location.glb import write_glb as write_binary_glb
+
+        visual = decimate(mesh, textured_triangles)
+        baked = build_textured_visual(
+            np.asarray(visual.vertices), np.asarray(visual.triangles), np.asarray(visual.vertex_colors), views,
+            texture_size=texture_size, device=device,
+        )
+        write_binary_glb(out / "visual.glb", baked.vertices, baked.triangles, uvs=baked.uvs, texture_jpeg=baked.texture_jpeg)
+        texture_stats = {"textured": True, "texture_size": texture_size, "bake_views": baked.views,
+                         "textured_fraction": round(baked.textured_fraction, 4)}
+    else:
+        visual = decimate(mesh, visual_triangles)
+        write_glb(visual, out / "visual.glb", with_colors=True)
     write_glb(collider, out / "collider.glb", with_colors=False)
     has_thumbnail = _thumbnail(project_dir, out / "thumbnail.jpg")
     vertices = np.asarray(visual.vertices)
@@ -142,7 +163,7 @@ def build_location(
         "assets": {"visual": "visual.glb", "collider": "collider.glb", "thumbnail": "thumbnail.jpg" if has_thumbnail else None, "splat": None},
         "stats": {
             "visual_triangles": len(visual.triangles), "collider_triangles": len(collider.triangles),
-            "voxel_size_m": built.voxel_size_m, "frames": built.frames,
+            "voxel_size_m": built.voxel_size_m, "frames": built.frames, **texture_stats,
         },
     }
     (out / "location.json").write_text(json.dumps(location, indent=2), encoding="utf-8")

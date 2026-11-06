@@ -38,6 +38,7 @@ This fork extends MQ3DRecon with **live streaming reconstruction** (Quest 3 → 
 - **onnxruntime is CPU-only.** Live stereo depth (M4) needs `onnxruntime-gpu` or WSL2.
 - **Hardware:** RTX 4080 Laptop GPU 12 GB, 31.6 GB RAM.
 - **adb:** two copies exist, one on PATH from Touch Portal and one at `%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe`. Mismatched versions kill each other's server; pass `--adb` to pin one.
+- **Bash tool quirk:** a literal backslash-x-zero-zero escape in a command (heredoc or `-c`) reaches the file as a real NUL byte. Write files with such escapes using the Write/Edit tools, or build the bytes in code (`bytes([0])`).
 - **Unity is not installed here,** so the C# in the QuestRealityCapture fork cannot be compiled locally. Review it carefully and say so when reporting.
 
 ## User setup and preferences (decided 2026-11-06)

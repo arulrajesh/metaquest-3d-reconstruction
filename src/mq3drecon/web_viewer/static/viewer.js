@@ -48,7 +48,11 @@ const [visual, collider] = await Promise.all([
   loader.loadAsync(base + loc.assets.collider),
 ]);
 visual.scene.traverse((node) => {
-  if (node.isMesh) node.material = new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide });
+  if (!node.isMesh) return;
+  const map = node.material && node.material.map;  // textured (baked) locations keep their texture, unlit
+  node.material = map
+    ? new THREE.MeshBasicMaterial({ map, side: THREE.DoubleSide })
+    : new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide });
 });
 scene.add(visual.scene);
 collider.scene.traverse((node) => { if (node.isMesh) { node.visible = false; colliders.push(node); } });
@@ -64,7 +68,7 @@ const floor = new THREE.Mesh(
 floor.position.set((minX + maxX) / 2, loc.floor_y, (minZ + maxZ) / 2);
 scene.add(floor);
 colliders.push(floor);
-setStatus(`${(loc.stats.visual_triangles / 1000).toFixed(0)}k triangles · floor: ${loc.floor_source ?? 'mesh'}`);
+setStatus(`${(loc.stats.visual_triangles / 1000).toFixed(0)}k triangles · ${loc.stats.textured ? `${loc.stats.texture_size}px texture` : 'vertex colors'} · floor: ${loc.floor_source ?? 'mesh'}`);
 
 // ---------------------------------------------------------------- VR rig: world_from_base transform
 const rig = new THREE.Matrix4();

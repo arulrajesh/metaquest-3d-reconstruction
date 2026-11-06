@@ -22,7 +22,7 @@ It owns requirements for:
 | File | Content |
 | --- | --- |
 | `location.json` | Schema below |
-| `visual.glb` | Vertex-colored mesh, decimated to `visual_triangles` (default 400k) |
+| `visual.glb` | **Textured** mesh (default): decimated to `textured_triangles` (150k) with a baked `texture_size`² (4096²) JPEG atlas. Falls back to a vertex-colored mesh of `visual_triangles` (400k) when the session has no color frames or `textured` is off. |
 | `collider.glb` | Uncolored mesh, decimated to `collider_triangles` (default 100k) |
 | `thumbnail.jpg` | Middle left color keyframe of the session, longest side 512 px (when available) |
 
@@ -43,15 +43,34 @@ It owns requirements for:
 
 ---
 
+# Texture Bake
+
+Color keyframes from both eyes (at most 400, thinned evenly in time) are baked
+into a UV atlas on the GPU:
+
+1. **Unwrap.** Open3D UVAtlas with 16 parallel partitions and a 2-texel gutter.
+2. **Rasterize.** Each texel gets its surface point, its face normal (oriented toward the cameras), and an interpolated vertex color used as fallback.
+3. **Score views.** A view counts for a texel when it projects inside the image (6 px margin), faces it with `cos ≥ 0.2`, and is within 6 m. The score is `cos × exp(−((d − 1.4 m) / 1.2 m)²) × relative sharpness`.
+4. **Occlusion.** A view is rejected when a ray cast against the mesh BVH from the texel to the camera hits geometry.
+5. **Blend.** The top 3 views are blended with weights `score⁴`.
+6. **Exposure.** Per-view gains are solved by regularized least squares in log space over texels seen by two views (clamped to [0.6, 1.6]), and the bake is run again with them.
+7. **Finish.** Unseen texels use the fallback color. Charts are padded 8 texels and textured texels unsharp-masked (amount 0.35).
+
+On the synthetic checker room, the median centroid color error is about 9×
+lower than with vertex colors (0.006 vs 0.057).
+
+---
+
 # GLB Format
 
 Each GLB is binary glTF 2.0 with a single mesh primitive in one `BIN` chunk:
 
 * `POSITION`: float32;
-* `COLOR_0`: normalized uint8 RGBA, alpha 255 (4-byte aligned vertex attribute), visual mesh only;
+* `COLOR_0` (vertex-colored meshes): **linear** RGBA as normalized uint16, alpha 1. glTF vertex colors are linear, so the camera's sRGB colors are converted.
+* `TEXCOORD_0` plus one embedded JPEG `baseColorTexture` (textured meshes), with an unlit material (`KHR_materials_unlit`, double-sided). The captured lighting is already baked in.
 * indices: uint32.
 
-No normals are stored; the viewer renders unlit. Base64-embedded buffers must not be used.
+No normals are stored. Base64-embedded buffers must not be used.
 
 ---
 
@@ -107,7 +126,7 @@ one. `--open-headset` also opens that URL in the headset browser.
 
 # Viewer
 
-* **Rendering.** The visual mesh is unlit with vertex colors.
+* **Rendering.** The visual mesh is unlit: textured when it has a base color texture, otherwise vertex colors.
 * **Collision.** The collider is invisible and used for teleport ray casts, together with an invisible floor plane at `floor_y` covering the bounds plus 2 m.
 * **In VR (`local-floor`)** the user starts at the spawn point:
   * **Teleport.** Hold the trigger to aim, release to teleport. Only surfaces with a normal `|y| ≥ 0.6` are targets. The head moves horizontally onto the target, and the floor height moves to the target's height.

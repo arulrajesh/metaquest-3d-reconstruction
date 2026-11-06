@@ -9,7 +9,9 @@ from mq3drecon.processing.web_location.color_fill import fill_uncolored
 from mq3drecon.processing.web_location.glb import read_glb, write_glb
 
 
-def test_glb_round_trip_is_exact_and_binary(tmp_path):
+def test_glb_round_trip_is_binary_with_linear_vertex_colors(tmp_path):
+    from mq3drecon.processing.web_location.glb import srgb_to_linear
+
     rng = np.random.default_rng(0)
     vertices = rng.random((500, 3)).astype(np.float32)
     triangles = rng.integers(0, 500, (900, 3))
@@ -17,8 +19,54 @@ def test_glb_round_trip_is_exact_and_binary(tmp_path):
     size = write_glb(tmp_path / "m.glb", vertices, triangles, colors)
     data = (tmp_path / "m.glb").read_bytes()
     assert len(data) == size and data[:4] == b"glTF" and b"BIN\x00" in data and b"base64" not in data
-    v, t, c = read_glb(tmp_path / "m.glb")
-    assert np.array_equal(v, vertices) and np.array_equal(t, triangles) and np.abs(c - colors).max() <= 0.5 / 255 + 1e-6
+    back = read_glb(tmp_path / "m.glb")
+    assert np.array_equal(back["vertices"], vertices) and np.array_equal(back["triangles"], triangles)
+    assert np.abs(back["colors"] - colors).max() < 2e-3  # sRGB -> linear uint16 -> sRGB
+    assert abs(srgb_to_linear(np.array([0.5]))[0] - 0.214) < 1e-3  # glTF vertex colors are linear
+
+
+def test_textured_glb_embeds_jpeg_and_unlit_material(tmp_path):
+    import cv2
+
+    ok, jpeg = cv2.imencode(".jpg", np.full((64, 64, 3), 128, np.uint8))
+    vertices = np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0]], np.float32)
+    uvs = np.array([[0, 0], [1, 0], [0, 1]], np.float32)
+    write_glb(tmp_path / "t.glb", vertices, np.array([[0, 1, 2]]), uvs=uvs, texture_jpeg=jpeg.tobytes())
+    back = read_glb(tmp_path / "t.glb")
+    assert back["texture_jpeg"] == jpeg.tobytes() and np.array_equal(back["uvs"], uvs) and back["colors"] is None
+    assert b"KHR_materials_unlit" in (tmp_path / "t.glb").read_bytes()
+
+
+def test_texture_bake_reproduces_detail_vertex_colors_cannot(tmp_path):
+    pytest.importorskip("warp")
+    pytest.importorskip("open3d")
+    from dataclasses import replace
+
+    from mq3drecon.processing.web_location.mesh_build import fuse_session
+    from mq3drecon.processing.web_location.mesh_export import decimate, remove_debris, to_open3d
+    from mq3drecon.processing.web_location.textured_visual import build_textured_visual, load_bake_views
+    from mq3drecon.synthetic import SyntheticCaptureSpec, scene_color, write_synthetic_capture
+
+    project = write_synthetic_capture(tmp_path / "room", SyntheticCaptureSpec(
+        frames=30, color_size=480, depth_size=128, color_format="jpg", texture="checker"))
+    built = fuse_session(project, voxel_size_m=0.03)
+    colors = fill_uncolored(built.mesh.vertices, built.mesh.triangles, built.mesh.colors, built.mesh.color_valid)
+    mesh = decimate(remove_debris(to_open3d(replace(built.mesh, colors=colors))), 40_000)
+    v, f, vc = np.asarray(mesh.vertices), np.asarray(mesh.triangles), np.asarray(mesh.vertex_colors)
+    visual = build_textured_visual(v, f, vc, load_bake_views(project), texture_size=1024)
+    assert visual.textured_fraction > 0.8
+
+    import cv2
+
+    texture = cv2.cvtColor(cv2.imdecode(np.frombuffer(visual.texture_jpeg, np.uint8), cv2.IMREAD_COLOR), cv2.COLOR_BGR2RGB)
+    centroids_uv = visual.uvs[visual.triangles].mean(axis=1)
+    centroids = visual.vertices[visual.triangles].mean(axis=1).astype(np.float64)
+    truth = scene_color(centroids * np.array([1.0, 1.0, -1.0]), "checker")  # Open3D world -> Unity world
+    px = np.clip((centroids_uv * 1024).astype(int), 0, 1023)
+    baked_error = np.median(np.abs(texture[px[:, 1], px[:, 0]] / 255.0 - truth).mean(axis=1))
+    # vertex-color baseline on the same (pre-unwrap) mesh
+    vertex_error = np.median(np.abs(vc[f].mean(axis=1) - scene_color(v[f].mean(axis=1) * np.array([1.0, 1.0, -1.0]), "checker")).mean(axis=1))
+    assert baked_error < 0.03 and baked_error < 0.4 * vertex_error
 
 
 def test_color_fill_reaches_only_nearby_uncolored_vertices():
@@ -72,11 +120,13 @@ def test_build_location_from_synthetic_capture(tmp_path):
     from mq3drecon.workflows.web_location import build_location
 
     project = write_synthetic_capture(tmp_path / "room", SyntheticCaptureSpec(frames=24, color_size=160, depth_size=96, color_format="jpg"))
-    result = build_location(project, workspace=tmp_path / "ws", name="Synthetic Room", visual_triangles=50_000, collider_triangles=10_000)
+    result = build_location(project, workspace=tmp_path / "ws", name="Synthetic Room", visual_triangles=50_000,
+                            collider_triangles=10_000, textured_triangles=30_000, texture_size=1024)
     loc = result.location
     assert loc["id"] == "synthetic-room" and loc["format"] == "mq3drecon-web-location"
     assert loc["floor_source"] == "captured_floor" and abs(loc["floor_y"]) < 0.03  # the synthetic floor is y = 0
     for name in ("visual.glb", "collider.glb", "location.json"):
         assert (result.location_dir / name).exists()
+    assert loc["stats"]["textured"] and read_glb(result.location_dir / "visual.glb")["texture_jpeg"]
     index = json.loads((tmp_path / "ws" / "locations" / "index.json").read_text())
     assert [e["id"] for e in index["locations"]] == ["synthetic-room"]
