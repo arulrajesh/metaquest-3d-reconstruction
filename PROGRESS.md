@@ -11,10 +11,26 @@ Last updated: 2026-11-06
 | M0 Feasibility | **Mostly done.** Environment, synthetic capture, Warp GPU spike, and real-headset data checks are done. Pending on-device: JPEG encode cost, heat, and WebXR frame rate. |
 | M1 Protocol, replay, receiver | **Done.** `specs/LIVE_STREAMING.md`. |
 | M2 Live reconstruction | **Done** (laptop side), with additions not in the original plan: **Kalman TSDF**, **keyframe-only fusion**, **compaction**, **two-way feedback** (`KEYFRAME`, `SURFACE_MESH`, `STATUS`). Specs: `LIVE_RECONSTRUCTION.md`, `SESSION_COMPACTION.md`. **Not yet checked by a person:** the Open3D viewer window in an interactive run. |
-| M3 Headset sender (QuestRealityCapture fork) | **In progress.** C# protocol, queue, and frame types are written (`Assets/RealityLog/Scripts/Runtime/Streaming/`, uncommitted). Still to write: the client (send plus receive), hooks in the recorders and controller, overlay rendering, HUD, boundaryless manifest. **Unity is not installed, so nothing has been compiled.** |
+| M3 Headset sender (QuestRealityCapture fork) | **Code done, never built** (fork `feature/live-streaming`: `56cbc0e`, `3111e03`, `448dbc8`, `0ce6bde`). Includes the client (send and receive, endpoint resolution, reconnect and resume, motion gate), feedback renderer (overlay, keyframe markers, HUD), stereo-instanced shader, recorder, depth, and controller hooks, boundaryless manifest, and `Tools/build_and_install.ps1`. **Verified only by `Tools/StreamingCheck`:** the code compiles as C# 9 against Unity stand-ins, and the wire format is cross-checked with Python. **Blocked on the user installing Unity 6000.4.5f1** with Android Build Support. |
 | M4 Live stereo quality mode | Deferred: needs `onnxruntime-gpu`. It is also the outdoor depth source (D13). |
-| M5 Web location export | Not started |
-| M6 Local site viewer | Not started (local hosting via `localhost:8080` plus adb reverse; see PLAN M6) |
+| M5 Web location export | **v1 done** (`a44ec28`): `build-location` writes binary GLB visual (vertex colors) and collider, `location.json` with the floor prior and spawn, and a thumbnail. Auto-runs after live sessions. **Appearance is not photoreal:** vertex colors on a TSDF mesh from 320² Quest depth looks like painted clay. Next: textured bake (D16) and/or splats. |
+| M6 Local site viewer | **v1 done** (`a44ec28`): `serve-locations` (gallery, three.js WebXR viewer with teleport and snap turn, `adb reverse` 8080). Checked in desktop Chrome only; **not yet tried in the headset.** |
+
+## Current state (read first)
+
+- **The first real capture (`20261106_120328`) was rejected by the user ("garbage, looks nothing like reality") and must not be used.**
+  - Why it was bad: stock app at 3 fps with motion blur; the boundary prompt reset tracking; only a 14 s usable window (82 depth and 21 color frames); vertex colors only.
+  - The laptop copies were deleted.
+  - The user was asked to delete the headset copy themselves (we may not permanently delete user data):
+    `adb -s 192.168.0.86:5555 shell rm -rf /sdcard/Android/data/com.t34400.QuestRealityCapture/files/20261106_120328`
+- **Next user action: install Unity 6000.4.5f1** with Android Build Support (OpenJDK, SDK and NDK) and sign in to Unity Hub. Then:
+  1. Run `powershell -ExecutionPolicy Bypass -File QuestRealityCapture\Tools\build_and_install.ps1 -Device 192.168.0.86:5555`.
+  2. Fix whatever the first real compile finds.
+  3. Run `mq3drecon live` and do a **recapture with the streaming build**: boundaryless, slow and systematic, covering the floor and ceiling, watching the overlay.
+- **Realism gap (the user's main complaint).** Even a good capture will not look real with vertex colors. Priority after the recapture:
+  - (a) GPU texture bake from color keyframes (D16) for sharp textures;
+  - (b) Gaussian splats for photoreal appearance (trainer to choose; needs a CUDA build or the Brush binary, which needs the user's permission to download);
+  - (c) FoundationStereo depth (M4) for better geometry.
 
 ## Done this session (2026-11-06)
 
@@ -59,12 +75,9 @@ Last updated: 2026-11-06
 | Compaction | 1,799 MB → **13 MB**. Geometry coverage 98.4% within 3 cm; 74% vs 80% colored vertices. |
 | Novelty trace | About 0.99 for the first frame, 0.2 while turning, 0 while standing still |
 
-## Dev samples (`C:\Users\Arul\MQ3DRecon\dev_samples\`)
+## Dev samples
 
-- `20261106_120328_compact/` (14 MB): compact real session. Use it for real-data checks.
-- `20261106_120328_headset_meta/`: CSV and JSON metadata of the full headset session.
-- The raw 1.8 GB window was deleted at the user's request ("throw away garbage").
-- The full 7+ GB original is still on the headset: `/sdcard/Android/data/com.t34400.QuestRealityCapture/files/20261106_120328`. **Ask the user before deleting it.**
+- **None.** The rejected capture and everything derived from it were deleted. Use the synthetic room (`mq3drecon make-synthetic-capture`) until a good capture comes from the streaming build.
 
 ## Headset facts (Quest 3 `2G0YC1ZG3H0214`, Android 14)
 
