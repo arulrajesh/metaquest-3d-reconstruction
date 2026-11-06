@@ -105,12 +105,24 @@ def run_live_capture(
     from mq3drecon.workflows.live_feedback import FeedbackPublisher
 
     reconstructor = LiveReconstructor(cfg)
+    # One post-processing job at a time: two sessions' splat trainings sharing the GPU (2026-11-07: a short test
+    # capture right before a full one) overflowed its 12 GB, Windows paged GPU memory, and neither finished in an hour.
+    postprocess_lock = threading.Lock()
 
     def completed_callback(completed: CompletedSession) -> None:
         mesh_path = save_live_mesh(completed)
         print(f"[live] Session saved: {completed.project_dir}" + (f" (live mesh {mesh_path.name})" if mesh_path else ""))
 
         def postprocess() -> None:
+            if not postprocess_lock.acquire(blocking=False):
+                print(f"[live] Build queued for {completed.project_dir.name}: waiting for the previous session's build", flush=True)
+                postprocess_lock.acquire()
+            try:
+                _postprocess()
+            finally:
+                postprocess_lock.release()
+
+        def _postprocess() -> None:
             if cfg.build.compact_after_session:
                 try:
                     from mq3drecon.workflows.live_postprocess import compact_in_place
