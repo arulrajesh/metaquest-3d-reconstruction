@@ -54,3 +54,46 @@ def read_splat(path: Path) -> dict[str, np.ndarray]:
         "rgba": raw["rgba"].astype(np.float32) / 255.0,
         "quats_wxyz": (raw["rot"].astype(np.float32) - 128.0) / 128.0,
     }
+
+
+def write_splat_ply(
+    path: Path,
+    means: np.ndarray,
+    scales: np.ndarray,
+    quats_wxyz: np.ndarray,
+    sh: np.ndarray,
+    opacity: np.ndarray,
+) -> int:
+    """Standard 3DGS binary PLY with view-dependent color (what Spark, SuperSplat and most trainers read).
+
+    ``sh`` is (N, K, 3) with the DC term first; stored as f_dc_0..2 and f_rest_* channel-major (all red
+    coefficients, then green, then blue). ``scales`` are linear (stored as logs), ``opacity`` in [0, 1] (stored as
+    logits). The ``.splat`` format keeps only the DC color: on held-out views of a real capture, dropping the
+    view-dependent part cost ~3 dB PSNR. Returns bytes written.
+    """
+    means = np.asarray(means, np.float32)
+    n = len(means)
+    sh = np.asarray(sh, np.float32).reshape(n, -1, 3)
+    rest = sh[:, 1:, :].transpose(0, 2, 1).reshape(n, -1)  # channel-major
+    q = np.asarray(quats_wxyz, np.float64)
+    q = q / np.maximum(np.linalg.norm(q, axis=1, keepdims=True), 1e-12)
+    alpha = np.clip(np.asarray(opacity, np.float64), 1e-6, 1 - 1e-6)
+    names = ["x", "y", "z", "nx", "ny", "nz", "f_dc_0", "f_dc_1", "f_dc_2"] + [f"f_rest_{i}" for i in range(rest.shape[1])]
+    names += ["opacity", "scale_0", "scale_1", "scale_2", "rot_0", "rot_1", "rot_2", "rot_3"]
+    record = np.zeros(n, dtype=[(name, "<f4") for name in names])
+    record["x"], record["y"], record["z"] = means[:, 0], means[:, 1], means[:, 2]
+    for c in range(3):
+        record[f"f_dc_{c}"] = sh[:, 0, c]
+    for i in range(rest.shape[1]):
+        record[f"f_rest_{i}"] = rest[:, i]
+    record["opacity"] = np.log(alpha / (1 - alpha))
+    log_scales = np.log(np.maximum(np.asarray(scales, np.float64), 1e-12))
+    for i in range(3):
+        record[f"scale_{i}"] = log_scales[:, i]
+    for i in range(4):
+        record[f"rot_{i}"] = q[:, i]
+    header = "ply\nformat binary_little_endian 1.0\nelement vertex %d\n" % n
+    header += "".join(f"property float {name}\n" for name in names) + "end_header\n"
+    data = header.encode("ascii") + record.tobytes()
+    Path(path).write_bytes(data)
+    return len(data)

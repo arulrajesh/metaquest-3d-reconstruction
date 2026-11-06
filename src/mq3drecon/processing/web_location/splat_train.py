@@ -60,6 +60,7 @@ class SplatResult:
     train_psnr: float
     holdout_psnr: float
     seconds: float
+    sh: np.ndarray | None = None  # (N, K, 3) SH coefficients, DC first (K = (degree + 1)^2), for view-dependent export
 
 
 def _ssim(a, b):
@@ -251,6 +252,7 @@ def train_splats(
         opacity = torch.sigmoid(params["opacities"]).cpu().numpy()
         keep = opacity > 0.005
         sh0 = params["sh0"][:, 0, :].cpu().numpy()
+        sh_all = torch.cat([params["sh0"], params["shN"]], dim=1).cpu().numpy()
         return SplatResult(
             means=params["means"].cpu().numpy()[keep],
             scales=torch.exp(params["scales"]).cpu().numpy()[keep],
@@ -260,4 +262,5 @@ def train_splats(
             train_psnr=train_psnr,
             holdout_psnr=holdout_psnr,
             seconds=time.time() - start,
+            sh=sh_all[keep],
         )

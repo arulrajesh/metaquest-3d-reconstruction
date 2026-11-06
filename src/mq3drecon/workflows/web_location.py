@@ -116,7 +116,15 @@ def _train_splats(seed_points, seed_colors, views, out: Path, enabled: bool, ite
     # ``views`` are already at training resolution (half size), so no further downscale here.
     result = train_splats(views, seed_points, seed_colors, SplatSettings(iterations=iterations, downscale=1))
     write_splat(out / "scene.splat", result.means, result.scales, result.quats_wxyz, result.rgb, result.opacity)
-    return "scene.splat", {
+    asset, extra = "scene.splat", {"splat_format": "splat-dc"}
+    if result.sh is not None:
+        # Keep the view-dependent color: on held-out views of a real capture, dropping it cost ~3 dB PSNR.
+        from mq3drecon.processing.web_location.splat_io import write_splat_ply
+
+        write_splat_ply(out / "scene.ply", result.means, result.scales, result.quats_wxyz, result.sh, result.opacity)
+        degree = int(round(np.sqrt(result.sh.shape[1]))) - 1
+        asset, extra = "scene.ply", {"splat_format": f"ply-sh{degree}", "splat_dc_fallback": "scene.splat"}
+    return asset, {**extra,
         "splats": int(len(result.means)), "splat_iterations": iterations, "splat_seconds": round(result.seconds, 1),
         "splat_train_psnr": round(result.train_psnr, 2), "splat_holdout_psnr": round(result.holdout_psnr, 2),
     }

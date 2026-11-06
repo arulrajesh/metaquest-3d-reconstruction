@@ -113,8 +113,19 @@ def train_with_spirula(
     if not checkpoints:
         raise RuntimeError(f"Spirula wrote no splat.ply under {run}")
     _check_identity_transform(run / "scene_transform.json")
-    version = text.splitlines()[0].strip() if text else "spirula"
-    return SpirulaRun(splat_ply=checkpoints[-1], seconds=time.time() - start, version=version, log=log)
+    return SpirulaRun(splat_ply=checkpoints[-1], seconds=time.time() - start, version=spirula_version(spirula), log=log)
+
+
+def spirula_version(spirula: Path) -> str:
+    """``Spirula Studio <version> (<commit>)`` from ``--help`` (training logs don't print it)."""
+    import re
+
+    try:
+        text = subprocess.run([str(spirula), "--help"], capture_output=True, text=True, timeout=60).stdout
+    except (OSError, subprocess.SubprocessError):
+        return "Spirula Studio"
+    found = re.search(r"Spirula Studio \S+ \([0-9a-f]+\)", text)
+    return found.group(0) if found else "Spirula Studio"
 
 
 def _check_identity_transform(path: Path) -> None:

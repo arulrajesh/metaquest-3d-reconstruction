@@ -76,3 +76,20 @@ def test_missing_binary_falls_back(tmp_path, monkeypatch):
     from mq3drecon.workflows.web_location import _train_splats_spirula
 
     assert _train_splats_spirula(tmp_path, np.zeros((1, 3)), np.zeros((1, 3)), tmp_path, tmp_path / "nope.exe", 10) == (None, {})
+
+
+def test_our_sh_ply_round_trips_through_the_reader(tmp_path):
+    from mq3drecon.processing.web_location.splat_io import write_splat_ply
+
+    rng = np.random.default_rng(0)
+    n = 7
+    means = rng.normal(size=(n, 3)).astype(np.float32)
+    scales = rng.uniform(0.01, 0.2, size=(n, 3))
+    quats = rng.normal(size=(n, 4))
+    sh = rng.normal(size=(n, 16, 3)).astype(np.float32)
+    opacity = rng.uniform(0.05, 0.95, size=n)
+    write_splat_ply(tmp_path / "ours.ply", means, scales, quats, sh, opacity)
+    back = read_splat_ply(tmp_path / "ours.ply")
+    assert np.allclose(back["means"], means) and np.allclose(back["sh"], sh, atol=1e-6)
+    assert np.allclose(back["scales"], scales, rtol=1e-5) and np.allclose(back["opacity"], opacity, atol=1e-5)
+    assert np.allclose(np.abs((back["quats_wxyz"] * (quats / np.linalg.norm(quats, axis=1, keepdims=True))).sum(axis=1)), 1.0, atol=1e-5)
