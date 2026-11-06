@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VR Locations</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>VR Locations</h1>
+    <p class="sub">Captured with Quest 3. Open one, then press <b>Enter VR</b> in the headset browser.</p>
+  </header>
+  <main id="grid" class="grid" aria-live="polite"><p class="empty">Loading…</p></main>
+  <script type="module">
+    const grid = document.getElementById('grid');
+    try {
+      const response = await fetch('/locations/index.json', { cache: 'no-store' });
+      if (!response.ok) throw new Error(`index.json: ${response.status}`);
+      const { locations } = await response.json();
+      grid.innerHTML = '';
+      if (!locations.length) {
+        grid.innerHTML = '<p class="empty">No locations yet. Capture with the headset; each session is built here automatically.</p>';
+      }
+      for (const loc of locations) {
+        const card = document.createElement('a');
+        card.className = 'card';
+        card.href = `viewer.html?loc=${encodeURIComponent(loc.id)}`;
+        const when = new Date(loc.created_utc).toLocaleString();
+        card.innerHTML = `
+          <div class="thumb">${loc.thumbnail ? `<img src="/locations/${loc.thumbnail}" alt="">` : ''}</div>
+          <div class="meta"><h2></h2><p>${loc.kind} · ${when}</p><p>${(loc.triangles / 1000).toFixed(0)}k triangles</p></div>`;
+        card.querySelector('h2').textContent = loc.name;
+        grid.appendChild(card);
+      }
+    } catch (error) {
+      grid.innerHTML = `<p class="empty">Could not load locations (${error.message}). Is <code>mq3drecon serve-locations</code> running?</p>`;
+    }
+  </script>
+</body>
+</html>

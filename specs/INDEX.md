@@ -200,6 +200,17 @@ Read when changing:
 
 Related tests: `tests/test_keyframes_and_compaction.py`, `tests/test_pose_filter.py`.
 
+## `WEB_LOCATION_EXPORT.md`
+
+Navigation for walkable web locations: package layout, location.json, GLB assets, floor/spawn estimation, local server, and WebXR viewer.
+
+Read when changing:
+
+* `mq3drecon.processing.web_location` or `mq3drecon.workflows.web_location`
+* `mq3drecon.web_viewer` (server or static viewer files)
+
+Related tests: `tests/test_web_location.py`.
+
 ## `LOGGING_AND_ERRORS.md`
 
 Navigation for library error reporting, typed project exceptions, logging, and CLI error conversion.

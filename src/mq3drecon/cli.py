@@ -163,6 +163,21 @@ def _run_compact_session(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_build_location(args: argparse.Namespace) -> int:
+    from mq3drecon.workflows.web_location import build_location
+
+    result = build_location(args.project_dir, workspace=args.workspace, name=args.name, kind=args.kind)
+    print(f"[Info] Location written to {result.location_dir}")
+    return 0
+
+
+def _run_serve_locations(args: argparse.Namespace) -> int:
+    from mq3drecon.workflows.web_location import run_serve_locations
+
+    run_serve_locations(workspace=args.workspace, port=args.port, adb=not args.no_adb, adb_path=args.adb, open_headset=args.open_headset)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="mq3drecon", description="Meta Quest 3D reconstruction toolkit.")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -329,6 +344,21 @@ def build_parser() -> argparse.ArgumentParser:
     compact_parser.add_argument("--output-dir", "-o", type=Path, required=True, help="New or empty directory for the compact session.")
     compact_parser.add_argument("--delete-source", action="store_true", help="Delete the source session after a successful compaction.")
     compact_parser.set_defaults(handler=_run_compact_session)
+
+    location_parser = subparsers.add_parser("build-location", help="Build a walkable web location (GLB meshes + location.json) from a session.")
+    location_parser.add_argument("--project-dir", "-p", type=_existing_project_dir, required=True, help="Recorded (compact) session.")
+    location_parser.add_argument("--workspace", "-w", type=Path, default=None, help="Workspace (default: ~/MQ3DRecon); output goes to <workspace>/locations/<id>.")
+    location_parser.add_argument("--name", default=None, help="Location name (default: the session directory name).")
+    location_parser.add_argument("--kind", choices=["indoor", "outdoor"], default="indoor", help="Capture kind (sets build resolution).")
+    location_parser.set_defaults(handler=_run_build_location)
+
+    serve_parser = subparsers.add_parser("serve-locations", help="Serve the VR locations gallery and WebXR viewer on localhost (and to the headset via adb reverse).")
+    serve_parser.add_argument("--workspace", "-w", type=Path, default=None, help="Workspace (default: ~/MQ3DRecon).")
+    serve_parser.add_argument("--port", type=int, default=8080, help="HTTP port (default 8080).")
+    serve_parser.add_argument("--adb", type=Path, default=None, help="Path to the adb executable to use.")
+    serve_parser.add_argument("--no-adb", action="store_true", help="Do not run adb reverse.")
+    serve_parser.add_argument("--open-headset", action="store_true", help="Open the gallery in the headset browser via adb.")
+    serve_parser.set_defaults(handler=_run_serve_locations)
 
     return parser
 
