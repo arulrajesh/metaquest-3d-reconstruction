@@ -23,7 +23,15 @@ Last updated: 2026-11-06
   - The laptop copies were deleted.
   - The user was asked to delete the headset copy themselves (we may not permanently delete user data):
     `adb -s 192.168.0.86:5555 shell rm -rf /sdcard/Android/data/com.t34400.QuestRealityCapture/files/20261106_120328`
-- **Unity install, in progress (2026-11-06).**
+- **The streaming APK builds (2026-11-06, fork `fb37a71`).** `Builds/QuestRealityCapture-live.apk` is 64 MB and installs as `com.arulrajesh.QuestRealityCaptureLive` ("QuestRealityCapture Live"). A first build takes about 15 min; later builds take about 3–8. `Tools/watch_build.ps1` shows a live progress bar. Issues found on the first real build:
+  - Our only compile error: `Camera.main` resolved to the `RealityLog.Camera` namespace (fixed).
+  - **Expected on a fresh `Library/`:** builtin ShaderGraph 17.4.0 fails its first compile ("GUID could not be found"). Unity's API updater then rewrites it to `UnityEngine.GUID`, and the recompile succeeds. **Don't revert those PackageCache edits.**
+  - Package Manager sometimes fails with `EPERM` renaming `com.unity.collections` into `Library/PackageCache`, probably because antivirus briefly holds the folder.
+    - Fix: copy `Editor/Data/Resources/PackageManager/BuiltInPackages/<pkg>` to `Library/PackageCache/<pkg>@<first 12 chars of <pkg>.sha1>`.
+  - Unity needed `%LOCALAPPDATA%\Unity\Caches` to exist (now created).
+  - The build restarts the adb server, which drops wireless adb. Afterwards, run `adb connect 192.168.0.86:5555`.
+  - **Not yet installed:** the headset is full (234 MB free of 103 GB). The user has to delete the old stock-app recordings (15 GB) first; commands are below.
+- **Unity install, done (2026-11-06).**
   - Unity Hub 3.22.5 is installed by winget as an **MSIX** app at `C:\Program Files\WindowsApps\UnityTechnologies.UnityHub_3.22.5.65535_x64__2vrhnee42bhxm\app\Unity Hub.exe`.
   - The Hub CLI only works after `Remove-Item Env:ELECTRON_RUN_AS_NODE`. VS Code sets it to 1, which turns the Hub into plain Node ("Cannot find module '--headless'").
   - The editor install path is set to `C:\Users\Arul\Unity\Hub\Editor` (no admin needed). Install command: `& $hub -- --headless install --version 6000.4.5f1 --changeset cc83ebd631f8 --module android --childModules`.
