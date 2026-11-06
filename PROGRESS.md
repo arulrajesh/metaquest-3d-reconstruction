@@ -8,8 +8,8 @@ Last updated: 2026-11-06
 
 | Milestone | Status |
 | --- | --- |
-| M0 Feasibility | **Partly done.** Environment checks are done. The synthetic capture generator is in progress. On-device measurements are pending: JPEG encode time, heat, and WebXR splat frame rate. |
-| M1 Protocol, replay, receiver | **In progress.** Code is written; tests and spec are pending. |
+| M0 Feasibility | **Mostly done.** The environment is checked, the synthetic capture is done, and the Warp GPU spike passes. On-device measurements are pending: JPEG encode time, heat, and WebXR frame rate. |
+| M1 Protocol, replay, receiver | **Done** (`0fff734`). Spec: `specs/LIVE_STREAMING.md`. 20 tests. |
 | M2 Live reconstruction, viewer, recorder | Not started |
 | M3 Headset sender (QuestRealityCapture fork) | Not started. The fork is cloned and on branch `feature/live-streaming`. |
 | M4 Live stereo quality mode | Deferred: needs `onnxruntime-gpu` or WSL2 |
@@ -27,24 +27,38 @@ Last updated: 2026-11-06
   - All decoding goes through `dataio/mruk_frame_codec.py`.
   - The existing tests still pass.
 - Shared helpers `is_ndc_depth_map_valid` and `mirror_principal_point_x` are in `utils/depth_utils.py`. `DepthDataIO` and `o3d_utils` now use them, so the live and offline paths cannot drift apart.
-- `src/mq3drecon/streaming/` is written but untested:
+- The `src/mq3drecon/streaming/` package is done and tested end to end over localhost. It contains:
   - `framing`, `messages`, `payloads`;
   - `bounded_queue`, `receiver`, `sender`;
-  - `discovery`, `adb`, `replay`.
+  - `discovery`, `adb`, `replay`, `session_recorder`.
+- The synthetic room capture (`src/mq3drecon/synthetic/`) loads with the offline loaders. Back-projected depth lies exactly on the analytic surfaces.
+- **Warp GPU spike** (warp-lang 1.19, CUDA 13, RTX 4080). Marching cubes is `warp.geometry.IsoSurfaceMarchingCubes(nx, ny, nz)`, whose device follows the field. `wp.MarchingCubes` is deprecated. Warp kernels must live in `.py` files, not `exec`/stdin.
+
+  | Case | Integrate | Marching cubes |
+  | --- | --- | --- |
+  | 2 M voxels, 320² depth | < 0.1 ms | |
+  | 101 M voxels @ 1 cm, 1280² depth | 2.1 ms | 178 ms |
+  | 77 M voxels @ 5 cm | 0.9 ms | 125 ms |
+
+- QuestRoomScan ideas and the outdoor strategy were added to `PLAN.md` §3b as decisions D12–D16.
 
 ## Next steps
 
-1. Write the synthetic room capture generator (`src/mq3drecon/synthetic/`). Its output must load with the existing MRUK and depth loaders, and back-projected depth must lie on the room surfaces.
-2. Write tests for the streaming package:
-   - framing round trip, bad magic, version mismatch, truncated stream;
-   - payload encodings;
-   - drop-oldest queue;
-   - receiver plus sender over localhost;
-   - discovery on localhost;
-   - replay of a synthetic capture.
-3. Write `specs/LIVE_STREAMING.md` and update `specs/RECORDING_FORMATS.md` for `.jpg` frames. Add both to `specs/INDEX.md`. Commit.
-4. M2: the session recorder (`streaming/session_recorder.py`), `processing/live/*`, `config/live_config.py`, the `mq3drecon live` workflow and CLI, and the Open3D viewer.
-5. M5 export, then the M6 local site with `serve-locations`, then the M3 C# sender.
+1. M2 live reconstruction. Add `warp-lang` to a new `live` extra in `pyproject.toml` and `PACKAGING.md`. Then build:
+   - `processing/live/native_depth.py` (NDC to metric, intrinsics, pose);
+   - `colorize.py` (sample color into the depth frame);
+   - `frame_matching.py`;
+   - `exclusion.py` (capsules);
+   - `gpu_tsdf.py` (Warp dense TSDF with color, marching cubes, point extraction);
+   - `worker.py` (drop-oldest queue, snapshots);
+   - `config/live_config.py`;
+   - `workflows/live_reconstruction.py` (session controller, auto-build hook);
+   - the `mq3drecon live` CLI;
+   - the Open3D desktop viewer.
+
+   Test on the synthetic room for geometry and color accuracy against `surface_distance` and `scene_color`.
+2. Headset: when the user has wireless adb connected, install the QuestRealityCapture v1.5.0 APK (stock, MRUK) and record a 15 s sample. Pull it once as a development sample and validate the live path on real data.
+3. M5 build pipeline per D16, then M6 local site with `serve-locations`, then M3 C# sender (needs Unity 6000.4.5f1 installed by the user).
 
 ## Known issues and risks
 
@@ -61,3 +75,5 @@ Last updated: 2026-11-06
 | 2026-11-06 | Wireless adb on the same Wi-Fi; frames go over direct TCP. A WebSocket transport is possible later for browser clients. |
 | 2026-11-06 | Local hosting first. |
 | 2026-11-06 | Default depth encoding is `u16_ndc`. |
+| 2026-11-06 | Laptop GPU does the heavy steps (QuestRoomScan ideas). NVIDIA Warp for TSDF and meshing, replacing Open3D CPU. |
+| 2026-11-06 | Outdoor capture is a first-class mode: stereo depth, splats for the far field, ground heightfield collider. |

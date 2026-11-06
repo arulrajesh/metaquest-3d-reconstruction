@@ -81,13 +81,51 @@ The work spans three codebases:
 | D2 | **Headset and laptop on the same Wi-Fi; the headset uses wireless adb** (user setup, 2026-11-06). Frames go directly over Wi-Fi to the laptop's LAN address. | Direct TCP over Wi-Fi is much faster than tunnelling through wireless adb. |
 | D3 | **Encode on the headset:** JPEG for color (worker thread, `ImageConversion.EncodeNativeArrayToJPG`) and float16 for depth. | Raw MRUK RGBA is about 6.5 MB per eye-frame (see bandwidth table). |
 | D4 | **Live depth defaults to Quest native depth.** Stereo depth (Fast-FoundationStereo ONNX) is an opt-in quality mode at a lower rate. | Native depth costs almost nothing. Stereo inference is too slow to run at full frame rate. |
-| D5 | **Live reconstruction uses one persistent `VoxelBlockGrid` and the existing per-frame integrator.** It uses raw headset poses, with no pose optimization during the live session. | [`integrate_rgbd_frame`](../../src/mq3drecon/processing/reconstruction/rgbd_integration_common.py#L84) already integrates one frame with no file I/O. |
+| D5 | **Live reconstruction is a dense TSDF on the laptop GPU (NVIDIA Warp), fed with raw headset poses.** There is no pose optimization during the live session. *(Revised 2026-11-06: originally Open3D's CPU `VoxelBlockGrid`.)* | Open3D's Windows wheel has no CUDA. Warp runs natively on Windows with CUDA, and its kernels also run on the CPU as a fallback. Measured on the RTX 4080: integrating 320² depth into 77 M voxels (40 × 6 × 40 m at 5 cm) takes 0.9 ms; marching cubes takes 125 ms. So the live preview shows a mesh, not just points. |
 | D6 | **The live viewer is a non-blocking Open3D window.** | Open3D is already a dependency. The viewer sits behind a small interface so another sink (for example Rerun) can be added later. |
 | D7 | **The laptop records every streamed session as an MRUK-layout project, and that recording is the master copy.** Headset-side disk recording is off by default when streaming. | Meets the no-copy requirement, and the whole offline pipeline runs on the recording unchanged. Color is stored as the JPEG bytes received, with no re-encode; `RECORDING_FORMATS.md` gains `.jpg` frames. Defaults favor fidelity: JPEG q90 and float32 depth for both eyes. |
 | D10 | **Zero-configuration connection.** The headset tries these in order:<br>1. **endpoint file:** over wireless adb, the laptop works out its own LAN address as seen from the headset and pushes `live_stream_endpoint.json` into the capture app's data folder;<br>2. **`127.0.0.1`** through `adb reverse`, a slow fallback;<br>3. **UDP discovery probe** (`MQLS?` on port 9871), which needs no adb at all. | Nobody types an IP address on the headset. |
 | D11 | **Auto-build when recording stops.** The final live TSDF becomes the collider straight away; heavier steps run after it. | Completes the one-step flow. |
 | D8 | **Published locations use Gaussian splats for appearance plus a simplified mesh for floor and collision.** | TSDF meshes from Quest depth look blobby and stop at about 5–10 m, so outdoor scenes would have no sky or far field. Splats trained on the camera images look photoreal and include the far field. The mesh gives visitors a walkable floor and walls. |
 | D9 | **Develop and test the PC side against a replay sender before touching Unity.** | A Python sender streams an existing recording over the protocol. All PC work, and its tests, then need no headset. |
+
+---
+
+## 3b. Laptop GPU stack, outdoor strategy, and ideas from QuestRoomScan (2026-11-06)
+
+[QuestRoomScan](https://github.com/genesisinteractive/QuestRoomScan) does all
+of its scanning on the headset. Here the headset stays a lightweight streamer,
+and the heavy steps run on the laptop's RTX 4080.
+
+| # | Decision | Reason |
+| --- | --- | --- |
+| D12 | **GPU stack:**<br>• Warp: TSDF integration, marching cubes, coverage, texture-bake kernels;<br>• `onnxruntime-gpu`: FoundationStereo depth;<br>• Brush or gsplat: splat training;<br>• Open3D: mesh I/O, decimation, plane RANSAC, and the desktop viewer only. | All run natively on Windows with CUDA, so there is no WSL2 in the operator flow. |
+| D13 | **Outdoor capture is a first-class mode, not just a bigger room.** | Quest depth is reliable to only about 5 m and degrades in sunlight. Outdoor scenes are large, tracking drifts, and exposure swings between sun and cloud. See the outdoor table below. |
+| D14 | **Operator exclusion zones.** Before integration, reject depth inside a torso capsule hanging from the head pose (radius 0.35 m) and inside hand/controller capsules. | Keeps the operator's body and hands out of the model (QuestRoomScan idea). |
+| D15 | **Scan coverage metrics** from the TSDF: observed-free, observed-solid, and unknown voxels. "Leaks" are free–unknown faces, i.e. holes. Closure = surface / (surface + leaks). The live viewer tints holes red. | Tells the operator where to look next (QuestRoomScan idea). Later, a laptop-to-headset message can show this on the headset HUD. |
+| D16 | **The build pipeline produces a textured mesh as the primary web asset**, with splats optional. | A textured GLB renders cheaply in Quest Browser; splats are heavier. The texturing method comes from QuestRoomScan. |
+
+The D16 build steps run in this order once recording stops:
+
+1. Select keyframes, gated on motion and sharpness (Laplacian variance, head angular velocity).
+2. Re-integrate on the GPU at fine resolution. The voxel size is chosen automatically to fit a GPU memory budget. Apply exclusion zones; use stereo depth outdoors.
+3. Clean the mesh: drop small components, snap to RANSAC planes, smooth normals.
+4. Simplify the mesh.
+5. UV-unwrap with xatlas.
+6. Bake the texture on the GPU from keyframes. Score each texel's candidate views by how head-on the view is, times a working-distance weight peaking at 0.8–2 m. Test occlusion against depth. Blend the top K views with exposure equalization, then sharpen and level seams.
+7. Export the collider and `location.json`. Train a splat if configured.
+
+**Outdoor strategy (D13)**
+
+| Problem outdoors | Handling |
+| --- | --- |
+| Quest depth reaches only ~5 m and degrades in sunlight | Stereo depth from the passthrough image pairs (FoundationStereo on the GPU). Passive stereo is unaffected by sunlight and useful to about 10 m: error ≈ z²·δd / (f·B), about 0.15 m at 5 m and 0.6 m at 10 m. |
+| Far field and sky are missing | Gaussian splats trained on all frames. Walking gives a metres-wide baseline, which recovers distant structure. Optionally, a sky dome built from upward-looking frames. |
+| Walkable collision | A **ground heightfield** fitted to near-field depth, since the ground under the visitor is always observed. Full 3D walls remain an indoor feature. |
+| Scale versus memory | 5 cm dense live volume (about 600 MB for 40 × 6 × 40 m). The build voxel size is chosen to fit the budget, with block-sparse storage later if needed. |
+| Tracking drift on long walks or featureless grass | Short overlapping sessions. Offline pose refinement with visual SfM (known poses as priors). The live preview shows seams early. |
+| Exposure swings between sun and cloud | Exposure-equalized texture blending, and per-image appearance terms in splat training. |
+| Sunlight on the headset lenses | Operator rule: never point the lenses at the sun or leave the headset face-up outdoors. Focused sunlight can burn the displays. |
 
 ---
 
