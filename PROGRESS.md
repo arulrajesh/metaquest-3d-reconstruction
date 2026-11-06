@@ -64,6 +64,22 @@ Last updated: 2026-11-06
       - SH in the export (Spark supports SH3 via `.ply`/`.spz`);
       - for local viewing, laptop rendering over Air Link with a native OpenXR splat viewer (e.g. RSR). This is the Hyperscape-like route and needs the user's decision.
     - The user is installing Hyperscape Capture (Beta) to compare. It's a store app, so the user installs it; it may be US-only.
+    - **A/B results (2026-11-07, real recapture, 15k iterations; holdout PSNR / splats / native-res fine detail kept):**
+
+      | Setting | Holdout PSNR | Splats | Fine detail |
+      | --- | --- | --- | --- |
+      | default | 31.00 | 891k | 30% |
+      | pose_opt | 29.27 | — | 15% (worse) |
+      | absgrad | 31.00 | 593k | 27% |
+      | **mcmc 1M (now the default)** | **31.42** | **724k** | 26% |
+
+      No training method recovers detail.
+    - **The view-count test is decisive:** training on half the views (143) drops holdout PSNR **30.9 → 27.9 dB**, while train views get *sharper* (43% vs 32% detail, overfitting). More views is the strongest lever, and views also disagree at pixel level (motion blur or rolling shutter), so sharper frames matter too.
+    - **Done in response:**
+      - compaction keeps the sharpest color frame per 0.25 s for splats (`KeyframePolicy.splat_color_gap_s`);
+      - the build trains splats on up to 2000 half-res views, uint8 on the GPU (`0179244`);
+      - the live app requests 1728×1728 and sends 10 color pairs/s (fork `3e47724`). The APK rebuild is in progress.
+    - **Next: install and recapture** in bright light, moving slowly, with close-up passes. Compare against Hyperscape.
   - **Next quality steps:**
     - SH in the export: `.splat` drops view-dependent color. SPZ or `.ply` would keep it, but test Spark loading in a browser first.
     - More color keyframes for splats: compaction keeps ~1/s, tuned for TSDF. This needs a new capture to measure.
