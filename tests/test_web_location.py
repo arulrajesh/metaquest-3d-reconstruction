@@ -79,6 +79,20 @@ def test_color_fill_reaches_only_nearby_uncolored_vertices():
     assert np.allclose(filled[1:4], [1.0, 0.0, 0.0]) and np.allclose(filled[9], 0.6)
 
 
+def test_harmonic_fill_blends_between_seen_ends_and_leaves_unseen_pieces_alone():
+    # A strip of 11 vertices, red at one end and blue at the other; plus a separate, never-seen triangle.
+    vertices = np.concatenate([np.stack([np.arange(11.0), np.zeros(11), np.zeros(11)], axis=1), np.eye(3) + 20.0])
+    triangles = np.array([[i, i + 1, i + 1] for i in range(10)] + [[11, 12, 13]])
+    colors = np.full((14, 3), 0.6)
+    colors[0], colors[10] = [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]
+    valid = np.zeros(14, bool)
+    valid[[0, 10]] = True
+    filled = fill_uncolored(vertices, triangles, colors, valid, rings=0, harmonic=True)
+    assert np.allclose(filled[5], [0.5, 0.0, 0.5], atol=1e-3)  # halfway: an even blend
+    assert np.allclose(filled[2], [0.8, 0.0, 0.2], atol=1e-3)
+    assert np.allclose(filled[11:], 0.6)  # no seen vertex in that piece: placeholder kept
+
+
 def test_floor_prior_rejects_furniture_and_uses_a_captured_floor():
     o3d = pytest.importorskip("open3d")
     from mq3drecon.processing.web_location.mesh_export import estimate_floor_y

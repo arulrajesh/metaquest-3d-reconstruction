@@ -148,7 +148,8 @@ def build_location(
 
     from mq3drecon.processing.web_location.color_fill import fill_uncolored
 
-    colors = fill_uncolored(built.mesh.vertices, built.mesh.triangles, built.mesh.colors, built.mesh.color_valid)
+    # Unseen areas (e.g. an unscanned ceiling) get a smooth blend of the surrounding seen colors, not flat gray.
+    colors = fill_uncolored(built.mesh.vertices, built.mesh.triangles, built.mesh.colors, built.mesh.color_valid, harmonic=True)
     mesh = remove_debris(to_open3d(dc_replace(built.mesh, colors=colors)))
     collider = decimate(mesh, collider_triangles)
     floor_y, floor_source = estimate_floor_y(decimate(mesh, visual_triangles), built.trajectory[:, 1])
