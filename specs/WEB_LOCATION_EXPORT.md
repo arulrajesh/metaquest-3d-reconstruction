@@ -149,12 +149,22 @@ one. `--open-headset` also opens that URL in the headset browser.
 # Viewer
 
 * **Rendering.** The visual mesh is unlit: textured when it has a base color texture, otherwise vertex colors.
-* **Collision.** The collider is invisible and used for teleport ray casts, together with an invisible floor plane at `floor_y` covering the bounds plus 2 m.
-* **In VR (`local-floor`)** the user starts at the spawn point:
-  * **Teleport.** Hold the trigger to aim, release to teleport. Only surfaces with a normal `|y| ≥ 0.6` are targets. The head moves horizontally onto the target, and the floor height moves to the target's height.
-  * **Snap turn.** The thumbstick turns 30° around the head.
-* **On desktop:** orbit controls starting at the spawn point at eye height.
+* **Collision.** The collider is invisible and double-sided, and is used for every ray cast: teleport aim, walls, ground and ceiling. An invisible floor plane at `floor_y`, covering the bounds plus 2 m, backs it up.
+  * Each collider mesh gets a BVH (`three-mesh-bvh` 0.9.16). A ray against 100k triangles then costs about 0.03 ms instead of about 20 ms.
+  * A hit's normal is turned to face back along the ray, so scan winding doesn't matter.
+* **In VR (`local-floor`)** the user starts at the spawn point. Movement follows Google Earth VR:
+  * **Glide (left thumbstick).** Move where the left controller points, flattened onto the floor plane. Push forward or back; tilt sideways to strafe.
+    * Speed: 1.5 m/s at full deflection after a 0.15 dead zone. It scales with altitude when flying (×(1 + 0.5·altitude), capped at ×10).
+    * Walls: rays at knee height (floor + 0.45 m) and chest height (eyes − 0.2 m) stop the user 0.25 m from a wall and slide them along it. In a corner they stop.
+    * Ground: the floor eases (rate 12/s) onto the first surface below, found by a ray starting `STEP_HEIGHT` = 0.4 m above the current floor. So ledges up to 40 cm are climbed and any drop is followed. Ground following runs only while gliding (plus 0.4 s after) or while landing, so standing still never bobs.
+  * **Right thumbstick.**
+    * Left/right snap-turns 30° around the head.
+    * Up/down flies at 1.2 m/s, up to 30 m above the ground. A ceiling ray stops the user 0.15 m below a ceiling.
+    * A click lands: the user falls to the ground below.
+  * **Teleport (trigger).** Hold the trigger to aim, release to teleport. Only surfaces whose facing normal has `y ≥ 0.6` are targets, so ceilings no longer qualify. The head moves horizontally onto the target, the floor height moves to the target's height, and flying ends.
+  * **Comfort vignette.** A head-locked ring closes in while gliding or flying: clear inside about 26°, dark beyond about 49°, strength 0.9 × stick deflection. `&vignette=0` in the URL turns it off.
+* **On desktop:** orbit controls starting at the spawn point at eye height. WASD or the arrow keys move horizontally and Q/E move down/up (free flight, no collision). Shift moves 3× faster.
 
 * **Splats.** When `assets.splat` is set, the viewer loads Spark (`@sparkjsdev/spark` 2.3.1) and shows the splat by default, with the visual mesh hidden. **M** on desktop, or a grip squeeze in VR, toggles splat and mesh. The collider and teleport are unchanged.
 
-three.js is loaded from a pinned version (0.181.2); Spark needs ≥ 0.180.
+three.js is loaded from a pinned version (0.181.2); Spark needs ≥ 0.180. three-mesh-bvh 0.9.16 needs three ≥ 0.159.
