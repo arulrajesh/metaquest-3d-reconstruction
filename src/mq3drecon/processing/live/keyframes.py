@@ -39,6 +39,11 @@ class KeyframePolicy:
     moving_speed_mps: float = 0.05
     moving_angular_dps: float = 5.0
     color_window_s: float = 0.25
+    splat_color_gap_s: float | None = 0.25
+    """Compaction also keeps the sharpest color frame around every ``splat_color_gap_s`` step, for Gaussian
+    splats. The color keyframes above are tuned for TSDF coloring (~1/s), but splats need many views to
+    generalize: on the real recapture (2026-11-06), halving 286 views cost 3 dB of held-out PSNR. None keeps
+    only the TSDF color keyframes."""
 
 
 @dataclass(frozen=True)

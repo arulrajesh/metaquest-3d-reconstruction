@@ -27,8 +27,12 @@ class TexturedVisual:
     textured_fraction: float
 
 
-def load_bake_views(project_dir: Path, *, max_views: int = 400) -> list[BakeView]:
-    """All color frames of the session (both eyes), thinned evenly in time if there are more than ``max_views``."""
+def load_bake_views(project_dir: Path, *, max_views: int = 400, downscale: int = 1) -> list[BakeView]:
+    """All color frames of the session (both eyes), thinned evenly in time if there are more than ``max_views``.
+
+    ``downscale`` > 1 shrinks images and intrinsics (splat training runs at half resolution, so it can take
+    many more views in the same memory). Sharpness is measured before downscaling.
+    """
     intrinsics: dict = {}
     frames: list[ColorFrame] = []
     for _, message in iter_project_messages(project_dir, ReplayOptions(depth_sides=())):
@@ -42,7 +46,15 @@ def load_bake_views(project_dir: Path, *, max_views: int = 400) -> list[BakeView
     for frame in frames:
         image = color_to_image(frame, intrinsics[frame.side])
         gray = cv2.cvtColor(cv2.resize(image.rgb, None, fx=0.25, fy=0.25, interpolation=cv2.INTER_AREA), cv2.COLOR_RGB2GRAY)
-        views.append(BakeView(image.rgb, image.view.intrinsic, image.view.world_to_camera, image_sharpness(gray)))
+        rgb, intrinsic = image.rgb, image.view.intrinsic
+        if downscale > 1:
+            h, w = rgb.shape[:2]
+            sw, sh = w // downscale, h // downscale
+            rgb = cv2.resize(rgb, (sw, sh), interpolation=cv2.INTER_AREA)
+            intrinsic = intrinsic.astype(np.float64).copy()
+            intrinsic[0, :] *= sw / w
+            intrinsic[1, :] *= sh / h
+        views.append(BakeView(rgb, intrinsic, image.view.world_to_camera, image_sharpness(gray)))
     return views
 
 

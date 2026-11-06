@@ -57,3 +57,18 @@ def test_compaction_keeps_geometry_and_shrinks_the_session(tmp_path):
     saved = json.loads((tmp_path / "compact" / COMPACTION_JSON).read_text())
     assert saved["policy"]["depth_min_info_gain"] == KeyframePolicy().depth_min_info_gain
     assert source.exists()  # never deleted unless asked
+
+
+@pytest.mark.filterwarnings("ignore")
+def test_compaction_keeps_extra_color_views_for_splats(tmp_path):
+    pytest.importorskip("warp")
+    from mq3drecon.synthetic import SyntheticCaptureSpec, write_synthetic_capture
+    from mq3drecon.workflows.compaction import compact_session
+
+    # 60 frames at the synthetic rate: dense enough that a 0.25 s grid adds views beyond the TSDF color keyframes.
+    source = write_synthetic_capture(tmp_path / "room", SyntheticCaptureSpec(frames=60, color_size=96, depth_size=64))
+    tsdf_only = compact_session(source, tmp_path / "tsdf_only", policy=KeyframePolicy(splat_color_gap_s=None))
+    with_grid = compact_session(source, tmp_path / "with_grid", policy=KeyframePolicy(splat_color_gap_s=0.25))
+    assert with_grid.frames_after["color_left"] > tsdf_only.frames_after["color_left"]
+    assert with_grid.frames_after["color_left"] <= with_grid.frames_before["color_left"]
+    assert with_grid.frames_after["color_left"] == with_grid.frames_after["color_right"]

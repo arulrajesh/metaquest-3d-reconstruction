@@ -47,6 +47,16 @@ def _thumbnail(project_dir: Path, out_path: Path, size: int = 512) -> bool:
     return bool(cv2.imwrite(str(out_path), image, [cv2.IMWRITE_JPEG_QUALITY, 85]))
 
 
+SPLAT_MAX_VIEWS = 2000  # half-resolution uint8 views: ~1.2 MB each on the GPU at 1280² capture
+
+
+def load_splat_views(project_dir: Path):
+    """Every color frame of the session (up to ``SPLAT_MAX_VIEWS``) at half resolution, for splat training."""
+    from mq3drecon.processing.web_location.textured_visual import load_bake_views
+
+    return load_bake_views(project_dir, max_views=SPLAT_MAX_VIEWS, downscale=2)
+
+
 def _train_splats(seed_points, seed_colors, views, out: Path, enabled: bool, iterations: int) -> tuple[str | None, dict]:
     """Train and write ``scene.splat`` if gsplat is available; the location is still valid without it.
 
@@ -63,7 +73,8 @@ def _train_splats(seed_points, seed_colors, views, out: Path, enabled: bool, ite
     except ImportError as exc:
         logger.info("Splat training skipped (%s); install torch + gsplat to enable it", exc)
         return None, {}
-    result = train_splats(views, seed_points, seed_colors, SplatSettings(iterations=iterations))
+    # ``views`` are already at training resolution (half size), so no further downscale here.
+    result = train_splats(views, seed_points, seed_colors, SplatSettings(iterations=iterations, downscale=1))
     write_splat(out / "scene.splat", result.means, result.scales, result.quats_wxyz, result.rgb, result.opacity)
     return "scene.splat", {
         "splats": int(len(result.means)), "splat_iterations": iterations, "splat_seconds": round(result.seconds, 1),
@@ -196,7 +207,12 @@ def build_location(
         write_glb(visual, out / "visual.glb", with_colors=True)
     write_glb(collider, out / "collider.glb", with_colors=False)
     seen = built.mesh.color_valid
-    splat_file, splat_stats = _train_splats(built.mesh.vertices[seen], built.mesh.colors[seen], views, out, splats, splat_iterations)
+    # Splats get their own, larger view set at training resolution: they need many views to generalize
+    # (halving 286 views cost 3 dB held-out PSNR on a real capture), while the bake only needs the best few.
+    splat_views = load_splat_views(project_dir) if splats else []
+    splat_file, splat_stats = _train_splats(built.mesh.vertices[seen], built.mesh.colors[seen], splat_views, out, splats, splat_iterations)
+    if splat_stats:
+        splat_stats["splat_views"] = len(splat_views)
     has_thumbnail = _thumbnail(project_dir, out / "thumbnail.jpg")
     vertices = np.asarray(visual.vertices)
     location = {

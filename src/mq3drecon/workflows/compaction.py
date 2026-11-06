@@ -169,8 +169,13 @@ def compact_session(
     kept_depth_us = [d.timestamp_us for d in decisions if d.depth_kept]
     color_keyframes_us = [d.timestamp_us for d in decisions if d.color_wanted]
     left_times, left_blur = _color_blur(project_dir, Side.LEFT, policy)
+    targets_us = list(color_keyframes_us)
+    if policy.splat_color_gap_s and left_times:
+        # Splat views: the sharpest frame around every gap step, on top of the TSDF color keyframes.
+        step = max(int(policy.splat_color_gap_s * 1e6), 1)
+        targets_us += list(range(min(left_times), max(left_times) + 1, step))
     chosen_left = set(select_color_frames(
-        color_keyframes_us, left_times, left_blur, policy, sharpness=_color_sharpness(project_dir, Side.LEFT)
+        targets_us, left_times, left_blur, policy, sharpness=_color_sharpness(project_dir, Side.LEFT)
     ))
     right_meta = pd.read_csv(ProjectPathConfig(project_dir).image.get_mruk_frame_metadata_csv_path(Side.RIGHT))
     right_times = sorted(int(t) for t in right_meta.timestamp_us_realtime)
