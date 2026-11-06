@@ -19,6 +19,36 @@ class UvMesh:
     source_vertex: np.ndarray  # (N,) index of the original vertex each new vertex came from
 
 
+def make_manifold(mesh, *, max_passes: int = 6):
+    """Clean a legacy Open3D mesh in place so UVAtlas accepts it; returns ``(mesh, stats)``.
+
+    Real scans (marching cubes + quadric decimation) contain a few duplicate or
+    degenerate triangles, edges shared by 3+ triangles, and "bowtie" vertices
+    where two fans touch at one point; UVAtlas rejects all of them ("Non-manifold
+    mesh"). Non-manifold edges are cut by Open3D; triangles around bowtie
+    vertices are dropped, repeating until none are left (dropping triangles can
+    create new ones). Vertex colors stay attached.
+    """
+    triangles_before = len(mesh.triangles)
+    mesh.remove_duplicated_vertices()
+    mesh.remove_duplicated_triangles()
+    mesh.remove_degenerate_triangles()
+    passes = 0
+    for passes in range(1, max_passes + 1):
+        mesh.remove_non_manifold_edges()
+        bowties = np.asarray(mesh.get_non_manifold_vertices(), np.int64)
+        if len(bowties) == 0 and len(mesh.get_non_manifold_edges()) == 0:
+            break
+        if len(bowties):
+            touches = np.isin(np.asarray(mesh.triangles), bowties).any(axis=1)
+            mesh.remove_triangles_by_mask(touches)
+        mesh.remove_unreferenced_vertices()
+    mesh.remove_unreferenced_vertices()
+    removed = triangles_before - len(mesh.triangles)
+    return mesh, {"triangles_removed": int(removed), "passes": passes,
+                  "manifold": len(mesh.get_non_manifold_edges()) == 0 and len(mesh.get_non_manifold_vertices()) == 0}
+
+
 def unwrap(vertices: np.ndarray, triangles: np.ndarray, *, size: int = 4096, gutter: float = 2.0, partitions: int = 16) -> UvMesh:
     import open3d as o3d
 

@@ -159,17 +159,25 @@ def build_location(
         from mq3drecon.processing.web_location.textured_visual import build_textured_visual, load_bake_views
 
         views = load_bake_views(project_dir)
+    baked = None
     if views:
         from mq3drecon.processing.web_location.glb import write_glb as write_binary_glb
+        from mq3drecon.processing.web_location.uv_atlas import make_manifold
 
-        visual = decimate(mesh, textured_triangles)
-        baked = build_textured_visual(
-            np.asarray(visual.vertices), np.asarray(visual.triangles), np.asarray(visual.vertex_colors), views,
-            texture_size=texture_size, device=device,
-        )
+        visual, manifold_stats = make_manifold(decimate(mesh, textured_triangles))
+        try:
+            baked = build_textured_visual(
+                np.asarray(visual.vertices), np.asarray(visual.triangles), np.asarray(visual.vertex_colors), views,
+                texture_size=texture_size, device=device,
+            )
+        except Exception as error:  # keep the location (vertex colors + splats) rather than losing the build
+            print(f"[build-location] texture bake failed, falling back to vertex colors: {error}", flush=True)
+            texture_stats = {"textured": False, "texture_error": str(error)[:300]}
+    if baked is not None:
         write_binary_glb(out / "visual.glb", baked.vertices, baked.triangles, uvs=baked.uvs, texture_jpeg=baked.texture_jpeg)
         texture_stats = {"textured": True, "texture_size": texture_size, "bake_views": baked.views,
-                         "textured_fraction": round(baked.textured_fraction, 4)}
+                         "textured_fraction": round(baked.textured_fraction, 4),
+                         "manifold_triangles_removed": manifold_stats["triangles_removed"]}
     else:
         visual = decimate(mesh, visual_triangles)
         write_glb(visual, out / "visual.glb", with_colors=True)
