@@ -260,6 +260,7 @@ M0 results so far (2026-11-06, this laptop):
   - `StreamingConfig`: a new `streaming` block in `recording_config.json` with `enabled`, `host`, `port`, per-stream fps, `jpegQuality`, `downscale`, and depth sides.
 - Refactor `MrukCameraRecorder` and `DepthMapExporter` so each sampled frame goes to one or more frame sinks (disk, network). Existing disk recording behavior must stay byte-identical.
 - HUD: connection state, send fps, drops, and queue depth.
+- **Boundaryless app.** Declare `<uses-feature android:name="com.oculus.feature.BOUNDARYLESS_APP" android:required="true"/>` in the Android manifest, as QuestRoomScan does. Passthrough apps may run without a Guardian boundary. Without it the operator keeps getting the "create roomscale / stationary boundary" prompt (observed 2026-11-06), and outdoors no boundary fits.
 - Order of work:
   1. USB with `adb reverse`;
   2. Wi-Fi;

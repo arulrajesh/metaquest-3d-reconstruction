@@ -10,7 +10,7 @@ Last updated: 2026-11-06
 | --- | --- |
 | M0 Feasibility | **Mostly done.** The environment is checked, the synthetic capture is done, and the Warp GPU spike passes. On-device measurements are pending: JPEG encode time, heat, and WebXR frame rate. |
 | M1 Protocol, replay, receiver | **Done** (`0fff734`). Spec: `specs/LIVE_STREAMING.md`. 20 tests. |
-| M2 Live reconstruction, viewer, recorder | Not started |
+| M2 Live reconstruction, viewer, recorder | **Core done** (`2126aca`, `6ae95be`). Built: GPU TSDF, reconstructor, session controller, `mq3drecon live`, viewer, end-to-end test. Missing: `specs/LIVE_RECONSTRUCTION.md`, `CLI_BEHAVIOR.md` entries, a real-data check, and an interactive check of the viewer window. |
 | M3 Headset sender (QuestRealityCapture fork) | Not started. The fork is cloned and on branch `feature/live-streaming`. |
 | M4 Live stereo quality mode | Deferred: needs `onnxruntime-gpu` or WSL2 |
 | M5 Web location export | Not started |
@@ -41,6 +41,18 @@ Last updated: 2026-11-06
   | 77 M voxels @ 5 cm | 0.9 ms | 125 ms |
 
 - QuestRoomScan ideas and the outdoor strategy were added to `PLAN.md` §3b as decisions D12–D16.
+
+## Headset facts (Quest 3 `2G0YC1ZG3H0214`, Horizon OS / Android 14, measured 2026-11-06)
+
+- **Network:** Wi-Fi IP 192.168.0.86; the laptop is 192.168.0.223 on the same subnet.
+- **Wireless adb:** connect USB once, run `adb tcpip 5555`, then `adb connect 192.168.0.86:5555`. Use the SDK adb (`%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe`, v36).
+- **Git Bash:** prefix headset paths in `adb shell` with `MSYS_NO_PATHCONV=1`.
+- **Capture app:** stock QuestRealityCapture v1.5.0 APK installed (`com.t34400.QuestRealityCapture`). Launch it with `adb shell monkey -p com.t34400.QuestRealityCapture -c android.intent.category.LAUNCHER 1`.
+- **Stock recorder rate:** it saves only about **3 fps per eye**, against `targetSaveFps` 10. Raw 6.5 MB RGBA writes through a per-pixel C# loop are the bottleneck. A real session: 7.2 GB after about 3 minutes.
+- **MRUK color:** 1280×1280, fx = fy = 870.07, principal point (642.97, 639.24). The intrinsics JSON also carries `lensOffset` (position and rotation) plus sensor and current resolution.
+- **Depth:** 320×320 at about 8 fps. FOV tangents are L 1.376 / R 0.839 / T 0.966 / D 1.428. `near_z` 0.1, `far_z` written as `Infinity`.
+- **Boundary:** the Guardian keeps prompting "create roomscale / stationary boundary". Workaround: draw a roomscale boundary, or turn Boundary off in the Developer settings. Fix in M3: the boundaryless manifest feature.
+- **First real session:** `20261106_120328` on the headset.
 
 ## Next steps
 
