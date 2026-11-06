@@ -47,6 +47,23 @@ Last updated: 2026-11-06
       - Splats: 918k (29 MB), holdout 31.3 dB.
       - Exported DC-only renders at never-trained views score 26–33 dB (`uvdebug/holdout_v3.jpg`).
       - Superseded, for the user to delete: `recapture-2026-11-06`.
+  - **User verdict in the headset (2026-11-06): the splat is "barely passable... nowhere near photorealistic".** Research and measurements followed (full report in the chat, 2026-11-07):
+    - **Hyperscape** renders its splats on Meta's servers and streams video to the Quest, after hours of cloud training. Ours renders ~900k splats in the Quest browser, without SH.
+    - **Ruled out on our data:**
+      - lens distortion (render error flat from image centre to corner: frames are rectified);
+      - stereo calibration;
+      - training resolution: full-res training is 5× slower, gives fewer splats and no PSNR gain (27.9 vs 27.9 at native res), and is equally soft.
+    - **At native pixels the renders keep only ~10–25% of the photos' fine detail** (Laplacian variance). The smear looks like views disagreeing by a few pixels: pose or time-sync error, and/or too few close views.
+    - **Capture levers (app rebuild):**
+      - the camera API supports **1728×1728** (Horizon OS v209+), but we request 1280×1280 (`RealityLogScene.unity` `RequestedResolution`);
+      - the camera streams up to 60 fps, but our gate sends ≤5 color fps (`LiveStreamSettings.colorMaxFps`), and compaction keeps ~1/s/eye;
+      - frames are dim (mean 68/255): more light means less noise and blur.
+    - **Training levers** (`splat_train.py` options, A/B on the recapture in progress): `pose_opt` with correct intrinsics, `absgrad`, `strategy="mcmc"` (gsplat ablation: 1M MCMC splats beat 3.2M default), bilateral-grid/PPISP exposure compensation, Quest-depth supervision (DN-Splatter style), and deblur/rolling shutter (3dgs-deblur, BAD-Gaussians, gsplat 3DGUT).
+    - **Display levers:**
+      - WebXR framebuffer scale (the Quest browser renders below native resolution);
+      - SH in the export (Spark supports SH3 via `.ply`/`.spz`);
+      - for local viewing, laptop rendering over Air Link with a native OpenXR splat viewer (e.g. RSR). This is the Hyperscape-like route and needs the user's decision.
+    - The user is installing Hyperscape Capture (Beta) to compare. It's a store app, so the user installs it; it may be US-only.
   - **Next quality steps:**
     - SH in the export: `.splat` drops view-dependent color. SPZ or `.ply` would keep it, but test Spark loading in a browser first.
     - More color keyframes for splats: compaction keeps ~1/s, tuned for TSDF. This needs a new capture to measure.
