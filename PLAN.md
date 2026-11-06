@@ -1,7 +1,9 @@
 # Plan: Live Streaming Reconstruction and Hosted VR Locations
 
-Status: draft, 2026-11-06
-Branch: `feature/live-streaming-reconstruction` (from `main` at `97d15f7`)
+Status: active, 2026-11-06. Progress is tracked in `PROGRESS.md`.
+Branch: `feature/live-streaming-reconstruction` (from `main` at `97d15f7`) in the
+fork `arulrajesh/metaquest-3d-reconstruction`. The headset side is on
+`feature/live-streaming` in `arulrajesh/QuestRealityCapture`.
 
 This is a planning document, not a specification. Behavioral requirements will
 move into `specs/` as each milestone starts, per `specs/COMMON_RULES.md`.
@@ -19,7 +21,22 @@ move into `specs/` as each milestone starts, per `specs/COMMON_RULES.md`.
    the Quest browser (WebXR), enter VR, and move around inside it.
 
 The live model is a preview and a coverage check. The published location is
-built offline from the same recorded session, at full quality.
+built from the same session after recording stops, at full quality.
+
+### Operator flow (requirement, 2026-11-06): one streamlined experience
+
+There is no "disconnect the headset and copy files" step. The laptop's stream
+recording is the master copy of every session.
+
+1. On the laptop, run `mq3drecon live`.
+   - If a headset is on USB, the command sets up `adb reverse` itself.
+   - It also broadcasts a discovery beacon on the local network.
+2. Put on the headset and open the capture app. It connects without any IP
+   entry: over USB first, otherwise to the laptop it finds on Wi-Fi.
+3. Press record and walk. The model grows on the laptop screen.
+4. Press stop. The laptop closes the session and automatically builds the web
+   location package: collider mesh, `location.json`, COLMAP export, and a
+   splat if a trainer is configured.
 
 ---
 
@@ -60,13 +77,15 @@ The work spans three codebases:
 
 | # | Decision | Reason |
 | --- | --- | --- |
-| D1 | **Transport: plain TCP with length-prefixed, versioned binary messages.** The headset is the client and the laptop listens. | Simple, debuggable, and works unchanged over USB (`adb reverse tcp:9870 tcp:9870`, headset dials `127.0.0.1`) and Wi-Fi. WebRTC and ROS 2 add a lot of machinery for no gain here. |
-| D2 | **USB first, Wi-Fi second.** Outdoors, use the laptop's mobile hotspot. | USB has ample bandwidth and no RF issues. It gets the pipeline working before network tuning. |
+| D1 | **Transport: plain TCP with length-prefixed, versioned binary messages.** The headset is the client and the laptop listens. **adb is never on the data path.** | Needs no extra libraries on either end and has the least overhead. The framing does not depend on the transport, so a WebSocket transport (one protocol frame per binary WebSocket message) can be added if a browser ever becomes a client, for example a live view in a phone or headset browser. WebRTC and ROS 2 add a lot of machinery for no gain here. |
+| D2 | **Headset and laptop on the same Wi-Fi; the headset uses wireless adb** (user setup, 2026-11-06). Frames go directly over Wi-Fi to the laptop's LAN address. | Direct TCP over Wi-Fi is much faster than tunnelling through wireless adb. |
 | D3 | **Encode on the headset:** JPEG for color (worker thread, `ImageConversion.EncodeNativeArrayToJPG`) and float16 for depth. | Raw MRUK RGBA is about 6.5 MB per eye-frame (see bandwidth table). |
 | D4 | **Live depth defaults to Quest native depth.** Stereo depth (Fast-FoundationStereo ONNX) is an opt-in quality mode at a lower rate. | Native depth costs almost nothing. Stereo inference is too slow to run at full frame rate. |
 | D5 | **Live reconstruction uses one persistent `VoxelBlockGrid` and the existing per-frame integrator.** It uses raw headset poses, with no pose optimization during the live session. | [`integrate_rgbd_frame`](../../src/mq3drecon/processing/reconstruction/rgbd_integration_common.py#L84) already integrates one frame with no file I/O. |
 | D6 | **The live viewer is a non-blocking Open3D window.** | Open3D is already a dependency. The viewer sits behind a small interface so another sink (for example Rerun) can be added later. |
-| D7 | **Every live session is saved as an MRUK-layout project.** | The whole offline pipeline (stereo depth, color optimization, tiled TSDF, COLMAP export) then runs on it unchanged. |
+| D7 | **The laptop records every streamed session as an MRUK-layout project, and that recording is the master copy.** Headset-side disk recording is off by default when streaming. | Meets the no-copy requirement, and the whole offline pipeline runs on the recording unchanged. Color is stored as the JPEG bytes received, with no re-encode; `RECORDING_FORMATS.md` gains `.jpg` frames. Defaults favor fidelity: JPEG q90 and float32 depth for both eyes. |
+| D10 | **Zero-configuration connection.** The headset tries these in order:<br>1. **endpoint file:** over wireless adb, the laptop works out its own LAN address as seen from the headset and pushes `live_stream_endpoint.json` into the capture app's data folder;<br>2. **`127.0.0.1`** through `adb reverse`, a slow fallback;<br>3. **UDP discovery probe** (`MQLS?` on port 9871), which needs no adb at all. | Nobody types an IP address on the headset. |
+| D11 | **Auto-build when recording stops.** The final live TSDF becomes the collider straight away; heavier steps run after it. | Completes the one-step flow. |
 | D8 | **Published locations use Gaussian splats for appearance plus a simplified mesh for floor and collision.** | TSDF meshes from Quest depth look blobby and stop at about 5–10 m, so outdoor scenes would have no sky or far field. Splats trained on the camera images look photoreal and include the far field. The mesh gives visitors a walkable floor and walls. |
 | D9 | **Develop and test the PC side against a replay sender before touching Unity.** | A Python sender streams an existing recording over the protocol. All PC work, and its tests, then need no headset. |
 
@@ -76,14 +95,16 @@ The work spans three codebases:
 
 | Stream | Raw size | Sent as | At 10 fps |
 | --- | --- | --- | --- |
-| Color, per eye, 1280×1280 RGBA | 6.5 MB | JPEG q80, ~0.15–0.3 MB | both eyes: ~3–6 MB/s |
-| Native depth, per eye (descriptor gives size, ~320×320) | ~0.4 MB float32 | float16, left eye only, ~0.2 MB | ~2 MB/s |
+| Color, per eye, 1280×1280 RGBA | 6.5 MB | JPEG q90, ~0.3–0.45 MB | both eyes: ~6–9 MB/s |
+| Native depth, per eye (descriptor gives size, ~320×320) | ~0.4 MB float32 | `u16_ndc` (16-bit NDC), both eyes | ~4 MB/s |
 | Pose / heartbeat | bytes | JSON header only | negligible |
-| **Total** | | | **~5–8 MB/s (40–65 Mbit/s)** |
+| **Total (default)** | | | **~10–13 MB/s (~80–105 Mbit/s)** |
+| **Total (weak Wi-Fi profile)** | | JPEG q85, `u16_ndc`, 5 fps | **~4 MB/s** |
 
 - USB 3 cable: plenty of headroom.
 - Wi-Fi 6 near the router: fine.
-- Phone or laptop hotspot outdoors: marginal. Fall back to 5 fps or 640×640 color through config.
+- Phone or laptop hotspot outdoors: use the hotspot profile.
+- Depth precision of `u16_ndc` (step 1/65535 in NDC, near plane 0.1 m): about 0.6 mm at 2 m and 4 mm at 5 m. float16 would be about 1 cm at 2 m and 12 cm at 5 m, so it is kept only as an option.
 
 ---
 
@@ -129,7 +150,10 @@ Rules:
    - Then check `open3d.core.cuda.is_available()`. Open3D's Windows pip wheels have historically been CPU-only.
    - If CUDA is missing, either accept CPU integration for native-depth live mode (320×320 depth is light) or run the PC side in WSL2 with mirrored networking.
    - `onnxruntime-gpu` works on native Windows either way.
-2. **Sample capture.** Record a short indoor MRUK session with stock QuestRealityCapture, pull it with `adb pull`, and run the existing offline pipeline on it end to end.
+2. **Synthetic capture.** Add a generator that writes an MRUK-layout project of an analytic room (color, native NDC depth, poses).
+   - It is built by inverting the existing offline pipeline's conventions, so data the offline pipeline reconstructs correctly is, by construction, data the live path must also reconstruct correctly.
+   - It replaces "record and `adb pull`" for development.
+   - The first real dataset arrives over the stream in M3.
 3. **Laptop throughput** on the RTX 4080 Laptop GPU (12 GB):
    - frames per second for native-depth integration;
    - Fast-FoundationStereo ONNX latency at 640² and 1280²;
@@ -141,6 +165,16 @@ Rules:
 6. **Splat training spike.** Train a splat from the M0.2 capture using the existing `export-colmap` output, with known poses. Try Brush first (easiest on Windows), then gsplat or nerfstudio `splatfacto`.
 
 Exit: a written note with the measured numbers, an updated bandwidth table, and the chosen viewer and trainer.
+
+M0 results so far (2026-11-06, this laptop):
+
+- **Python:** 3.11.13 via `uv`; `.[full]` installs cleanly (open3d 0.19.0, numpy 2.4, opencv 5.0).
+- **Open3D CUDA: not available** (`open3d.core.cuda.is_available()` is `False`). The Windows wheel is CPU-only, so live integration runs on `CPU:0` by default.
+- **onnxruntime:** 1.31.1, CPU and Azure execution providers only. Live stereo (M4) needs `onnxruntime-gpu` or WSL2.
+- **Test baseline on `main`:** 99 passed, 3 failed. The failures already exist upstream:
+  - a stale `_load_rgbd_images` import;
+  - the root `__all__` check;
+  - the README `pip install` wording.
 
 ### M1: Protocol, replay sender, receiver (PC only)
 
@@ -216,7 +250,16 @@ Exit: a written note with the measured numbers, an updated bandwidth table, and 
 - **Coordinate frame.** The Open3D world frame used here is Y-up and right-handed, like glTF. A test should confirm that the splat, the collider, and the spawn pose line up.
 - **Privacy pass for outdoor or public captures.** Blur faces and license plates in the frames before training.
 
-### M6: Site viewer (user's site repo)
+### M6: Site viewer, local hosting first (user decision, 2026-11-06)
+
+Local version now; public hosting later.
+
+- `mq3drecon serve-locations` serves the viewer and `<workspace>/locations/` on `localhost:8080`.
+- It runs `adb reverse tcp:8080 tcp:8080` over wireless adb, so the Quest browser opens `http://localhost:8080`. WebXR needs a secure context; `localhost` counts as one, while a LAN IP would not.
+- Optionally, it opens the headset browser through adb.
+- The viewer files ship inside this package for now and move to the site repo when public hosting starts.
+
+Original scope, for when public hosting starts:
 
 - WebXR page built on the viewer chosen in M0.5:
   - loads `location.json`, the splat, and the collider;
@@ -251,6 +294,8 @@ Exit: a written note with the measured numbers, an updated bandwidth table, and 
 
 1. What is the website built on, and where is it hosted? This affects M6.
 2. ~~One visitor at a time, or multi-user?~~ Answered 2026-11-06: one visitor at a time; no shared sessions.
+6. ~~Hosting?~~ Answered 2026-11-06: local hosting for now; public hosting later.
+7. ~~Connection?~~ Answered 2026-11-06: wireless adb, with headset and laptop on the same Wi-Fi.
 3. Visual bar: photoreal splats (planned) or a lighter textured mesh only?
 4. The `origin` of this clone is `t-34400/metaquest-3d-reconstruction`. Should this work live in a personal fork, or go upstream as PRs?
 5. Is there already an MRUK capture on hand for M0.2?

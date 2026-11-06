@@ -172,7 +172,8 @@ class ImagePathConfig:
         return self.project_dir / MRUK_RGBA_DIR_MAP[side]
 
     def get_mruk_rgba_paths(self, side: Side) -> list[Path]:
-        return sorted(self.get_mruk_rgba_dir(side).glob("*.rgba"))
+        directory = self.get_mruk_rgba_dir(side)
+        return sorted(path for pattern in ("*.rgba", "*.jpg") for path in directory.glob(pattern))
 
     def get_mruk_rgba_png_dir(self, side: Side) -> Path:
         return self.project_dir / MRUK_RGBA_PNG_DIR_MAP[side]

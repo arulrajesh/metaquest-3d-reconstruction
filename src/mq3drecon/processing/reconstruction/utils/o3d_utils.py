@@ -9,12 +9,13 @@ from mq3drecon.dataio.rgbd_data_io import RGBDDataIO
 from mq3drecon.models.camera_dataset import CameraDataset, DepthDataset
 from mq3drecon.models.side import Side
 from mq3drecon.models.transforms import CoordinateSystem, Transforms
+from mq3drecon.utils.depth_utils import mirror_principal_point_x
 
 
 def compute_o3d_intrinsic_matrices(dataset: CameraDataset) -> np.ndarray:
     widths = dataset.widths
     intrinsic_matrices = dataset.get_intrinsic_matrices()
-    intrinsic_matrices[:, 0, 2] = widths - intrinsic_matrices[:, 0, 2]
+    intrinsic_matrices[:, 0, 2] = mirror_principal_point_x(intrinsic_matrices[:, 0, 2], widths)
 
     return intrinsic_matrices
 

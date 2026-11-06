@@ -6,6 +6,7 @@ import pandas as pd
 from scipy.spatial.transform import Rotation as R
 from mq3drecon.config.project_path_config import ImagePathConfig
 from mq3drecon.dataio.helpers.pose_interpolator import PoseInterpolator
+from mq3drecon.dataio.mruk_frame_codec import MRUK_FRAME_SUFFIXES, is_mruk_frame_file, read_mruk_frame_rgba
 from mq3drecon.dataio.mruk_image_data_io import MRUKImageDataIO
 from mq3drecon.dataio.session_info import CaptureBackend, load_session_info
 from mq3drecon.models.camera_characteristics import CameraCharacteristics
@@ -70,8 +71,8 @@ class ImageDataIO:
 
 
     def _load_mruk_rgb(self, side: Side, timestamp: int) -> np.ndarray:
-        raw_path = self.image_path_config.get_mruk_rgba_dir(side=side) / f"{timestamp}.rgba"
-        if raw_path.exists():
+        frame_dir = self.image_path_config.get_mruk_rgba_dir(side=side)
+        if any((frame_dir / f"{timestamp}{suffix}").exists() for suffix in MRUK_FRAME_SUFFIXES):
             dataset = self.load_color_dataset(side=side)
             matches = np.where(dataset.timestamps == int(timestamp))[0]
             if len(matches) > 0:
@@ -127,15 +128,8 @@ class ImageDataIO:
                 raise FileNotFoundError(f"Image file not found or cannot be read: {file_path}")
             return cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
 
-        if file_path.suffix == ".rgba":
-            expected_size = width * height * 4
-            actual_size = file_path.stat().st_size
-            if actual_size != expected_size:
-                raise ValueError(
-                    f"Invalid RGBA file size for {file_path}: expected {expected_size} bytes, got {actual_size}"
-                )
-            rgba = np.fromfile(file_path, dtype=np.uint8).reshape(height, width, 4)
-            return np.ascontiguousarray(np.flipud(rgba))
+        if is_mruk_frame_file(file_path):
+            return read_mruk_frame_rgba(file_path, width, height)
 
         raise ValueError(f"Unsupported color image format: {file_path}")
 

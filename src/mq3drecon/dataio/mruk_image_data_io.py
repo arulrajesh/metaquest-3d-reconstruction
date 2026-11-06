@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 
 from mq3drecon.config.project_path_config import ImagePathConfig
+from mq3drecon.dataio.mruk_frame_codec import read_mruk_frame_rgba, validate_mruk_frame_file
 from mq3drecon.models.camera_dataset import CameraDataset
 from mq3drecon.models.side import Side
 from mq3drecon.models.transforms import CoordinateSystem, Transforms
@@ -73,15 +74,7 @@ class MRUKImageDataIO:
 
     def load_rgba(self, side: Side, file_name: str, width: int, height: int) -> np.ndarray:
         path = self.image_path_config.get_mruk_rgba_dir(side) / file_name
-        expected_size = int(width) * int(height) * 4
-        actual_size = path.stat().st_size
-        if actual_size != expected_size:
-            raise ValueError(
-                f"Invalid MRUK RGBA file size for {path}: expected {expected_size} bytes, got {actual_size}"
-            )
-
-        rgba = np.fromfile(path, dtype=np.uint8).reshape(int(height), int(width), 4)
-        return np.ascontiguousarray(np.flipud(rgba))
+        return read_mruk_frame_rgba(path, width, height)
 
     def build_color_dataset(self, side: Side) -> CameraDataset:
         intrinsics = self.load_intrinsics(side)
@@ -118,14 +111,7 @@ class MRUKImageDataIO:
                     f"expected {expected_byte_count}, got {byte_count}"
                 )
 
-            file_path = directory_path / file_name
-            if not file_path.exists():
-                raise FileNotFoundError(f"MRUK RGBA frame listed in metadata does not exist: {file_path}")
-            if file_path.stat().st_size != expected_byte_count:
-                raise ValueError(
-                    f"Invalid MRUK RGBA file size for {file_path}: "
-                    f"expected {expected_byte_count} bytes, got {file_path.stat().st_size}"
-                )
+            validate_mruk_frame_file(directory_path / file_name, width, height)
 
             file_names.append(file_name)
             timestamps.append(int(row.timestamp_us_realtime))

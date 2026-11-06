@@ -8,7 +8,7 @@ from mq3drecon.models.camera_dataset import DepthDataset
 from mq3drecon.models.confidence_map import ConfidenceMap
 from mq3drecon.models.side import Side
 from mq3drecon.models.transforms import CoordinateSystem, Transforms
-from mq3drecon.utils.depth_utils import compute_depth_camera_params, convert_depth_to_linear
+from mq3drecon.utils.depth_utils import compute_depth_camera_params, convert_depth_to_linear, is_ndc_depth_map_valid
 
 
 class DepthDataIO:
@@ -78,11 +78,7 @@ class DepthDataIO:
 
 
     def is_depth_map_valid(self, depth_map: np.ndarray) -> bool:
-        is_valid = (depth_map != 0).any() and (depth_map != 1).any()
-        is_valid = is_valid and not np.isnan(depth_map).any()
-        is_valid = is_valid and (depth_map >= 0).all()
-
-        return bool(is_valid)
+        return is_ndc_depth_map_valid(depth_map)
     
 
     def exists_depth_confidence_map_dir(self, side: Side) -> bool:

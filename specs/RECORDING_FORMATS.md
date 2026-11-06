@@ -44,7 +44,10 @@ MRUK color recordings use the following paths relative to the project directory:
 | `right_camera_mruk_frame_metadata.csv` | Right per-frame MRUK metadata. |
 | `mruk_stereo_pairs.csv` | Left/right frame correspondence metadata. |
 
-MRUK frame filenames are timestamp stems with `.rgba` extension.
+MRUK frame filenames are timestamp stems with a `.rgba` extension (headset
+recordings) or a `.jpg` extension (laptop recordings of a live stream, see
+`LIVE_STREAMING.md`). A single directory may mix both. Readers must dispatch on
+the file extension, not on the directory or session format.
 
 MRUK RGBA-to-PNG conversion writes generated PNG images under:
 
@@ -75,6 +78,22 @@ loaders must vertically flip the reshaped frame so all downstream consumers see
 RGB/RGBA images in the same top-down image orientation as legacy Camera2 RGB
 PNG frames. This orientation normalization is MRUK-specific and must not be
 applied to legacy YUV or RGB PNG readers.
+
+---
+
+# MRUK JPEG Frames
+
+MRUK `.jpg` frames are standard baseline JPEG images stored **top-down**, so
+readers must not flip them. A decoded `.jpg` frame must match the `width` and
+`height` given in the frame metadata; a mismatch is an explicit error.
+
+For `.jpg` rows, the metadata `rgba_byte_count` column still holds the decoded
+RGBA32 size (`width * height * 4`), and `format` is `JPEG`. On-disk size
+validation applies only to `.rgba` files. A `.jpg` file only needs to exist and
+be non-empty.
+
+All MRUK color decoding must go through `mq3drecon.dataio.mruk_frame_codec`.
+It returns top-down RGBA for both formats.
 
 ---
 
