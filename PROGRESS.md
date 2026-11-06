@@ -40,12 +40,15 @@ Last updated: 2026-11-06
   - **Locations:**
     - **`recapture-2026-11-06`** (current, correct intrinsics): textured mesh (80% textured, 4096²) and 907k splats.
     - Superseded, kept until the user deletes them: `20261106_175535_2` (vertex colors) and `recapture-2026-11-06-textured` (wrong intrinsics).
+  - **Done after that:**
+    - Harmonic color fill for unseen areas (`66babe0`): placeholder-grey vertices 29k → 9.9k.
+    - Splat defaults are now 15k iterations with densification capped at 5250 (`d6830a2`): +1.3 dB holdout at the same splat count, ~5.5 min.
+    - `recapture-2026-11-06-v3` is built with both. Superseded, for the user to delete: `recapture-2026-11-06`.
   - **Next quality steps:**
-    - SH in the export: `.splat` drops view-dependent color. SPZ or `.ply` would keep it.
-    - More color keyframes for splats: compaction keeps ~1/s, tuned for TSDF.
-    - Longer training: 7k iterations now, 30k is typical.
-    - Fill grey (unseen) texture regions.
+    - SH in the export: `.splat` drops view-dependent color. SPZ or `.ply` would keep it, but test Spark loading in a browser first.
+    - More color keyframes for splats: compaction keeps ~1/s, tuned for TSDF. This needs a new capture to measure.
     - Floor holes.
+    - **Headset test (needs the user):** splat frame rate at ~900k splats, plus joystick movement and the comfort vignette.
 - The first stock-app capture (`20261106_120328`) was rejected ("garbage") and deleted. The user deleted all old stock-app recordings from the headset (2026-11-06), freeing 15 GB.
 - **The streaming APK builds (2026-11-06, fork `fb37a71`).** `Builds/QuestRealityCapture-live.apk` is 64 MB and installs as `com.arulrajesh.QuestRealityCaptureLive` ("QuestRealityCapture Live"). A first build takes about 15 min; later builds take about 3–8. `Tools/watch_build.ps1` shows a live progress bar. Issues found on the first real build:
   - Our only compile error: `Camera.main` resolved to the `RealityLog.Camera` namespace (fixed).
