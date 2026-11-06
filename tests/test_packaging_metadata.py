@@ -23,15 +23,20 @@ def test_optional_extras_define_reconstruction_and_full_profiles():
     assert "onnxruntime" in optional_dependencies["stereo"]
     assert set(optional_dependencies["stereo"]).issubset(optional_dependencies["full"])
 
+# Extras that need a platform-specific install (see specs/PACKAGING.md) and are deliberately not in `full`.
+SPECIAL_INSTALL_EXTRAS = {"splats"}
+
+
 def test_full_profile_includes_all_feature_dependencies():
     optional_dependencies = load_pyproject()["project"]["optional-dependencies"]
 
     feature_dependencies = set()
     for extra_name, dependencies in optional_dependencies.items():
-        if extra_name != "full":
+        if extra_name != "full" and extra_name not in SPECIAL_INSTALL_EXTRAS:
             feature_dependencies.update(dependencies)
 
     assert feature_dependencies.issubset(optional_dependencies["full"])
+    assert not set(optional_dependencies["splats"]) & set(optional_dependencies["full"])
 
 
 def test_readme_documents_lightweight_and_full_pip_installs():

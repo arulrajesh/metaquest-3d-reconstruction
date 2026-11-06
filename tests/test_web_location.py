@@ -121,7 +121,7 @@ def test_build_location_from_synthetic_capture(tmp_path):
 
     project = write_synthetic_capture(tmp_path / "room", SyntheticCaptureSpec(frames=24, color_size=160, depth_size=96, color_format="jpg"))
     result = build_location(project, workspace=tmp_path / "ws", name="Synthetic Room", visual_triangles=50_000,
-                            collider_triangles=10_000, textured_triangles=30_000, texture_size=1024)
+                            collider_triangles=10_000, textured_triangles=30_000, texture_size=1024, splats=False)
     loc = result.location
     assert loc["id"] == "synthetic-room" and loc["format"] == "mq3drecon-web-location"
     assert loc["floor_source"] == "captured_floor" and abs(loc["floor_y"]) < 0.03  # the synthetic floor is y = 0

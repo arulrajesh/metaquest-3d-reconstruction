@@ -1,6 +1,7 @@
 // WebXR viewer for an MQ3DRecon web location (specs/WEB_LOCATION_EXPORT.md).
 // In VR: point a controller and pull the trigger to aim, release to teleport (upward-facing surfaces only);
-// push a thumbstick left/right to snap-turn 30°. On desktop: drag to orbit, scroll to zoom.
+// push a thumbstick left/right to snap-turn 30°; squeeze a grip to switch splat <-> mesh.
+// On desktop: drag to orbit, scroll to zoom, M to switch splat <-> mesh.
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { VRButton } from 'three/addons/webxr/VRButton.js';
@@ -55,6 +56,24 @@ visual.scene.traverse((node) => {
     : new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide });
 });
 scene.add(visual.scene);
+
+// Gaussian splat (photoreal), when the location has one: shown by default, mesh kept as a toggle.
+let splat = null;
+if (loc.assets.splat) {
+  setStatus('Loading splats…');
+  const { SparkRenderer, SplatMesh } = await import('@sparkjsdev/spark');
+  scene.add(new SparkRenderer({ renderer }));
+  splat = new SplatMesh({ url: base + loc.assets.splat });  // already Y-up (no COLMAP flip)
+  scene.add(splat);
+  visual.scene.visible = false;
+}
+function toggleRepresentation() {
+  if (!splat) return;
+  splat.visible = !splat.visible;
+  visual.scene.visible = !splat.visible;
+}
+window.addEventListener('keydown', (event) => { if (event.key === 'm' || event.key === 'M') toggleRepresentation(); });
+
 collider.scene.traverse((node) => { if (node.isMesh) { node.visible = false; colliders.push(node); } });
 scene.add(collider.scene);
 
@@ -68,7 +87,7 @@ const floor = new THREE.Mesh(
 floor.position.set((minX + maxX) / 2, loc.floor_y, (minZ + maxZ) / 2);
 scene.add(floor);
 colliders.push(floor);
-setStatus(`${(loc.stats.visual_triangles / 1000).toFixed(0)}k triangles · ${loc.stats.textured ? `${loc.stats.texture_size}px texture` : 'vertex colors'} · floor: ${loc.floor_source ?? 'mesh'}`);
+setStatus(`${splat ? `${(loc.stats.splats / 1000).toFixed(0)}k splats (M: mesh) · ` : ''}${(loc.stats.visual_triangles / 1000).toFixed(0)}k triangles · ${loc.stats.textured ? `${loc.stats.texture_size}px texture` : 'vertex colors'} · floor: ${loc.floor_source ?? 'mesh'}`);
 
 // ---------------------------------------------------------------- VR rig: world_from_base transform
 const rig = new THREE.Matrix4();
@@ -143,6 +162,7 @@ const controllers = [0, 1].map((index) => {
     marker.visible = false;
   });
   controller.addEventListener('connected', (event) => { controller.userData.inputSource = event.data; });
+  controller.addEventListener('squeezestart', toggleRepresentation);
   scene.add(controller);
   const grip = renderer.xr.getControllerGrip(index);
   grip.add(modelFactory.createControllerModel(grip));
@@ -198,3 +218,6 @@ renderer.setAnimationLoop(() => {
   }
   renderer.render(scene, camera);
 });
+
+// Debug handle (inspect from the browser console).
+window.mq3drecon = { scene, camera, renderer, controls, visual, splat, loc };

@@ -14,8 +14,12 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+import logging
+
 import cv2
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 LOCATION_FORMAT = "mq3drecon-web-location"
 LOCATION_VERSION = 1
@@ -41,6 +45,30 @@ def _thumbnail(project_dir: Path, out_path: Path, size: int = 512) -> bool:
     scale = size / max(image.shape[:2])
     image = cv2.resize(image, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
     return bool(cv2.imwrite(str(out_path), image, [cv2.IMWRITE_JPEG_QUALITY, 85]))
+
+
+def _train_splats(seed_points, seed_colors, views, out: Path, enabled: bool, iterations: int) -> tuple[str | None, dict]:
+    """Train and write ``scene.splat`` if gsplat is available; the location is still valid without it.
+
+    Seeds are only vertices some color camera observed: never-seen geometry would yield untrained gray splats.
+    """
+    if not enabled or not views:
+        return None, {}
+    try:
+        from mq3drecon.processing.web_location.msvc_env import prepare_gsplat_build
+
+        prepare_gsplat_build()
+        from mq3drecon.processing.web_location.splat_io import write_splat
+        from mq3drecon.processing.web_location.splat_train import SplatSettings, train_splats
+    except ImportError as exc:
+        logger.info("Splat training skipped (%s); install torch + gsplat to enable it", exc)
+        return None, {}
+    result = train_splats(views, seed_points, seed_colors, SplatSettings(iterations=iterations))
+    write_splat(out / "scene.splat", result.means, result.scales, result.quats_wxyz, result.rgb, result.opacity)
+    return "scene.splat", {
+        "splats": int(len(result.means)), "splat_iterations": iterations, "splat_seconds": round(result.seconds, 1),
+        "splat_train_psnr": round(result.train_psnr, 2), "splat_holdout_psnr": round(result.holdout_psnr, 2),
+    }
 
 
 def run_serve_locations(
@@ -94,6 +122,8 @@ def build_location(
     textured: bool = True,
     textured_triangles: int = 150_000,
     texture_size: int = 4096,
+    splats: bool = True,
+    splat_iterations: int = 7000,
     device: str = "cuda:0",
 ) -> LocationResult:
     from mq3drecon.processing.web_location.mesh_build import fuse_session
@@ -144,6 +174,8 @@ def build_location(
         visual = decimate(mesh, visual_triangles)
         write_glb(visual, out / "visual.glb", with_colors=True)
     write_glb(collider, out / "collider.glb", with_colors=False)
+    seen = built.mesh.color_valid
+    splat_file, splat_stats = _train_splats(built.mesh.vertices[seen], built.mesh.colors[seen], views, out, splats, splat_iterations)
     has_thumbnail = _thumbnail(project_dir, out / "thumbnail.jpg")
     vertices = np.asarray(visual.vertices)
     location = {
@@ -160,10 +192,10 @@ def build_location(
         "floor_source": floor_source,
         "spawn": {"position": list(spawn.position), "yaw_deg": spawn.yaw_deg},
         "bounds": {"min": vertices.min(axis=0).tolist(), "max": vertices.max(axis=0).tolist()},
-        "assets": {"visual": "visual.glb", "collider": "collider.glb", "thumbnail": "thumbnail.jpg" if has_thumbnail else None, "splat": None},
+        "assets": {"visual": "visual.glb", "collider": "collider.glb", "thumbnail": "thumbnail.jpg" if has_thumbnail else None, "splat": splat_file},
         "stats": {
             "visual_triangles": len(visual.triangles), "collider_triangles": len(collider.triangles),
-            "voxel_size_m": built.voxel_size_m, "frames": built.frames, **texture_stats,
+            "voxel_size_m": built.voxel_size_m, "frames": built.frames, **texture_stats, **splat_stats,
         },
     }
     (out / "location.json").write_text(json.dumps(location, indent=2), encoding="utf-8")

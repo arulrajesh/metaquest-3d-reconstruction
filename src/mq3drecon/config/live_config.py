@@ -86,6 +86,9 @@ class LiveBuildConfig:
     compact_after_session: bool = True
     """Replace the session with its compact form (specs/SESSION_COMPACTION.md) once it ends."""
     keep_full_recording: bool = False
+    splats: bool = True
+    """Train a Gaussian splat for each location when torch + gsplat are installed."""
+    splat_iterations: int = 7000
     """Keep the uncompacted recording as ``<name>_full`` instead of deleting it."""
     collider_triangles: int = 100_000
     visual_triangles: int = 400_000

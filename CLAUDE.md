@@ -35,6 +35,9 @@ This fork extends MQ3DRecon with **live streaming reconstruction** (Quest 3 → 
 - Tests: `.venv/Scripts/python.exe -m pytest -q`.
   - **Baseline on `main`:** 3 tests already fail upstream. These are `test_color_aligned_rgbd_loader_uses_float_color_for_float_depth`, `test_package_root_exports_are_intentionally_minimal`, and `test_readme_documents_lightweight_and_full_pip_installs`. Do not count them as regressions.
 - **Open3D 0.19 Windows wheel has no CUDA.** Live integration uses `CPU:0`.
+- **PyTorch 2.9.0+cu129 and gsplat 1.5.3** are in the venv. Install PyTorch from the CUDA index (`--index-url https://download.pytorch.org/whl/cu129`), never plain PyPI.
+  - gsplat JIT-compiled its CUDA kernels once (about 3.5 min) with VS 2022 Build Tools.
+  - `processing/web_location/msvc_env.prepare_gsplat_build()` must run **before importing gsplat**. It loads vcvars64 and strips gsplat's GCC-only `-Wno-attributes` flag, which MSVC rejects.
 - **onnxruntime is CPU-only.** Live stereo depth (M4) needs `onnxruntime-gpu` or WSL2.
 - **Hardware:** RTX 4080 Laptop GPU 12 GB, 31.6 GB RAM.
 - **adb:** two copies exist, one on PATH from Touch Portal and one at `%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe`. Mismatched versions kill each other's server; pass `--adb` to pin one.

@@ -122,7 +122,10 @@ def run_live_capture(
                 try:
                     from mq3drecon.workflows.web_location import build_location
 
-                    built = build_location(completed.project_dir, workspace=workspace, kind=cfg.mode, device=cfg.volume.device)
+                    built = build_location(
+                        completed.project_dir, workspace=workspace, kind=cfg.mode, device=cfg.volume.device,
+                        splats=cfg.build.splats, splat_iterations=cfg.build.splat_iterations,
+                    )
                     print(f"[live] Location ready: {built.location_dir.name} (run 'mq3drecon serve-locations' to walk around in it)")
                 except Exception:
                     logger.exception("Building the web location failed for %s", completed.project_dir)

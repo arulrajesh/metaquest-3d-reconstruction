@@ -36,6 +36,7 @@ def test_live_capture_records_and_reconstructs_a_streamed_session(tmp_path):
         volume=replace(config.volume, extent_m=(6.0, 4.0, 6.0)),
         integration=replace(config.integration, queue_size=64),
         preview=replace(config.preview, viewer=False, mesh_interval_s=0.2),
+        build=replace(config.build, auto_build=False),  # location builds (bake, splats) are tested separately
     )
     stop, done, ports = threading.Event(), threading.Event(), []
     listening = threading.Event()
@@ -88,6 +89,7 @@ def test_headset_receives_keyframes_surface_mesh_and_status(tmp_path):
         integration=replace(config.integration, queue_size=64),
         preview=replace(config.preview, viewer=False, mesh_interval_s=0.2),
         feedback=replace(config.feedback, surface_interval_s=0.2, status_interval_s=0.2),
+        build=replace(config.build, auto_build=False),
     )
     stop, done, ports, listening = threading.Event(), threading.Event(), [], threading.Event()
     worker = threading.Thread(target=lambda: run_live_capture(

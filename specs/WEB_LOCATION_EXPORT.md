@@ -24,6 +24,7 @@ It owns requirements for:
 | `location.json` | Schema below |
 | `visual.glb` | **Textured** mesh (default): decimated to `textured_triangles` (150k) with a baked `texture_size`² (4096²) JPEG atlas. Falls back to a vertex-colored mesh of `visual_triangles` (400k) when the session has no color frames or `textured` is off. |
 | `collider.glb` | Uncolored mesh, decimated to `collider_triangles` (default 100k) |
+| `scene.splat` | Gaussian splats (optional; present when torch and gsplat are installed and `splats` is on) |
 | `thumbnail.jpg` | Middle left color keyframe of the session, longest side 512 px (when available) |
 
 * The `<id>` is a slug of the location name.
@@ -58,6 +59,27 @@ into a UV atlas on the GPU:
 
 On the synthetic checker room, the median centroid color error is about 9×
 lower than with vertex colors (0.006 vs 0.057).
+
+---
+
+# Gaussian Splats
+
+When enabled, splats are trained on the GPU (gsplat) from the same color
+keyframes and headset poses, with no structure-from-motion:
+
+* **Seed:** fused mesh vertices that a color camera observed, at most 300k. Never-seen geometry is not seeded, because it would stay as untrained gray splats.
+* **Training:** 7000 iterations by default at half resolution. Loss is 0.8·L1 + 0.2·(1 − SSIM). The SH degree ramps up to 3. gsplat's `DefaultStrategy` densifies until 75% of training.
+* **Held-out views:** every 8th view is held out, and `stats.splat_holdout_psnr` reports PSNR on them.
+* **Export:** splats with opacity ≤ 0.005 are dropped. `scene.splat` is the 32-byte-per-splat antimatter15 layout:
+  * position float32×3 and linear scale float32×3;
+  * RGBA uint8, from the SH DC term and opacity;
+  * rotation uint8×4 (w, x, y, z);
+  * sorted by descending size × opacity.
+* **Frame:** the same as the GLBs (Y-up). Viewers must not apply a COLMAP flip.
+
+On Windows, the MSVC environment is loaded via `vswhere`/`vcvars64` before
+gsplat's one-time CUDA compile. Without torch or gsplat the location is built
+without splats.
 
 ---
 
@@ -133,4 +155,6 @@ one. `--open-headset` also opens that URL in the headset browser.
   * **Snap turn.** The thumbstick turns 30° around the head.
 * **On desktop:** orbit controls starting at the spawn point at eye height.
 
-three.js is loaded from a pinned version (0.170.0).
+* **Splats.** When `assets.splat` is set, the viewer loads Spark (`@sparkjsdev/spark` 2.3.1) and shows the splat by default, with the visual mesh hidden. **M** on desktop, or a grip squeeze in VR, toggles splat and mesh. The collider and teleport are unchanged.
+
+three.js is loaded from a pinned version (0.181.2); Spark needs ≥ 0.180.
