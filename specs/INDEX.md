@@ -188,6 +188,18 @@ Read when changing:
 
 Related tests: `tests/test_live_gpu_tsdf.py`, `tests/test_live_workflow.py`.
 
+## `SESSION_COMPACTION.md`
+
+Navigation for reducing a session to the frames worth keeping (Kalman useful-information gain, color novelty, blur) and the compact session output.
+
+Read when changing:
+
+* keyframe selection policy or reason codes
+* dry-run scoring or useful-information computation
+* compact session contents (keyframes.csv, compaction.json)
+
+Related tests: `tests/test_keyframes_and_compaction.py`, `tests/test_pose_filter.py`.
+
 ## `LOGGING_AND_ERRORS.md`
 
 Navigation for library error reporting, typed project exceptions, logging, and CLI error conversion.

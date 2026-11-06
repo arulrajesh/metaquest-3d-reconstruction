@@ -81,6 +81,7 @@ The stable package subcommands are:
 | `visualize-cameras` | Visualize camera trajectories. |
 | `live` | Receive a live headset stream, record each session into the workspace, and show the growing model. Workspace defaults to `~/MQ3DRecon` (`LIVE_RECONSTRUCTION.md`). Runs until the preview window closes or Ctrl+C. |
 | `live-replay` | Stream a recorded MRUK project to a running `live` receiver (`LIVE_STREAMING.md`). |
+| `compact-session` | Write a compact copy of a session to a new or empty `--output-dir`, keeping only keyframes worth keeping (`SESSION_COMPACTION.md`). The source is deleted only with `--delete-source`. |
 | `make-synthetic-capture` | Write a synthetic MRUK room capture into a new or empty `--output-dir`. |
 
 Package CLI commands should prefer hyphenated option names such as `--project-dir` and `--output-dir`. Legacy underscore aliases such as `--project_dir` and `--output_dir` may remain available for migration compatibility.

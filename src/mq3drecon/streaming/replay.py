@@ -26,6 +26,9 @@ class ReplayOptions:
     depth_encoding: str = "u16_ndc"
     color_sides: tuple[Side, ...] = (Side.LEFT, Side.RIGHT)
     depth_sides: tuple[Side, ...] = (Side.LEFT, Side.RIGHT)
+    color_timestamps_us: frozenset[int] | None = None
+    """When set, only color frames with these timestamps are emitted (others are not even decoded)."""
+    depth_timestamps_ms: frozenset[int] | None = None
 
 
 def _truthy(value: object) -> bool:
@@ -39,6 +42,8 @@ def _color_frames(paths: ProjectPathConfig, side: Side, options: ReplayOptions) 
     frame_dir = paths.image.get_mruk_rgba_dir(side)
     for row in pd.read_csv(metadata_path).itertuples(index=False):
         if not (_truthy(row.get_texture_ok) and _truthy(row.get_colors_ok)):
+            continue
+        if options.color_timestamps_us is not None and int(row.timestamp_us_realtime) not in options.color_timestamps_us:
             continue
         path = frame_dir / str(row.file_name)
         if not path.exists():
@@ -73,6 +78,8 @@ def _depth_frames(paths: ProjectPathConfig, side: Side, options: ReplayOptions) 
         return
     for row in pd.read_csv(descriptor_path).itertuples(index=False):
         timestamp_ms = int(row.timestamp_ms)
+        if options.depth_timestamps_ms is not None and timestamp_ms not in options.depth_timestamps_ms:
+            continue
         width, height = int(row.width), int(row.height)
         ndc = read_ndc_depth(paths.depth.get_depth_map_path(side=side, timestamp=timestamp_ms), width, height)
         if ndc is None:

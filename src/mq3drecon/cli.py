@@ -151,6 +151,18 @@ def _run_make_synthetic_capture(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_compact_session(args: argparse.Namespace) -> int:
+    from mq3drecon.workflows.compaction import compact_session
+
+    report = compact_session(args.project_dir, args.output_dir, delete_source=args.delete_source)
+    print(
+        f"[Info] frames {report.frames_before} -> {report.frames_after}; "
+        f"{report.bytes_before / 1e6:.0f} MB -> {report.bytes_after / 1e6:.0f} MB ({report.ratio:.0f}x smaller). "
+        f"Decisions: {report.reasons}"
+    )
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="mq3drecon", description="Meta Quest 3D reconstruction toolkit.")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -311,6 +323,12 @@ def build_parser() -> argparse.ArgumentParser:
     synthetic_parser.add_argument("--frames", type=int, default=60, help="Number of frames per camera.")
     synthetic_parser.add_argument("--color-format", choices=["rgba", "jpg"], default="rgba", help="Color frame format.")
     synthetic_parser.set_defaults(handler=_run_make_synthetic_capture)
+
+    compact_parser = subparsers.add_parser("compact-session", help="Keep only keyframes worth keeping (Kalman information gain, blur) in a new compact session.")
+    compact_parser.add_argument("--project-dir", "-p", type=_existing_project_dir, required=True, help="Recorded MRUK session to compact.")
+    compact_parser.add_argument("--output-dir", "-o", type=Path, required=True, help="New or empty directory for the compact session.")
+    compact_parser.add_argument("--delete-source", action="store_true", help="Delete the source session after a successful compaction.")
+    compact_parser.set_defaults(handler=_run_compact_session)
 
     return parser
 

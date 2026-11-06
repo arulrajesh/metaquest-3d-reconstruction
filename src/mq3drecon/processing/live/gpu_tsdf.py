@@ -77,10 +77,17 @@ class MeshArrays:
 
 @dataclass(frozen=True)
 class FrameScore:
-    info_gain: float  # summed variance reduction near surfaces (normalized units, per voxel)
+    info_gain: float  # summed variance reduction above the target precision near surfaces (normalized, per voxel)
     surface_voxels: int  # near-surface voxels this frame updated
     new_voxels: int  # near-surface voxels observed for the first time
     rejected: int  # readings rejected by the innovation gate
+    color_visible: int = 0  # near-surface voxels visible in the color camera
+    color_uncovered: int = 0  # ... of which have no well-observed color yet
+
+    @property
+    def color_novelty(self) -> float:
+        """Share of the surface this color view sees that still lacks good color, in [0, 1]."""
+        return self.color_uncovered / self.color_visible if self.color_visible else 0.0
 
     @property
     def novelty(self) -> float:
@@ -108,7 +115,10 @@ def _integrate_kernel(
     max_info: float,
     noise: wp.vec4,  # sigma0, k, edge_ratio, edge_inflation
     robust: wp.vec4,  # process_noise, gate_sigma^2, confident_info, reinit_outlier_rate
-    stats: wp.array(dtype=float),  # [info_gain, surface_voxels, new_voxels, rejected]
+    stats: wp.array(dtype=float),  # [info_gain, surface_voxels, new_voxels, rejected, color_visible, color_uncovered]
+    target_var: float,
+    commit: int,
+    color_target_info: float,
 ):
     i, j, k = wp.tid()
     p = origin + wp.vec3(float(i), float(j), float(k)) * voxel
@@ -153,7 +163,8 @@ def _integrate_kernel(
         if nu * nu > robust[1] * s:
             rate = 0.9 * rate + 0.1
             if rate < robust[3]:
-                outlier[i, j, k] = rate
+                if commit != 0:
+                    outlier[i, j, k] = rate
                 wp.atomic_add(stats, 3, 1.0)
                 return
             # Persistently inconsistent: the scene changed here; restart this voxel's filter.
@@ -161,16 +172,19 @@ def _integrate_kernel(
             rate = 0.0
         else:
             rate = 0.9 * rate
-    outlier[i, j, k] = rate
-
     prior_var = 1.0
     if w > 0.0:
         prior_var = 1.0 / w
     new_w = wp.min(w + 1.0 / r, max_info)
-    tsdf[i, j, k] = (x * w + obs / r) / (w + 1.0 / r)
-    info[i, j, k] = new_w
+    if commit != 0:
+        outlier[i, j, k] = rate
+        tsdf[i, j, k] = (x * w + obs / r) / (w + 1.0 / r)
+        info[i, j, k] = new_w
     if near_surface:
-        wp.atomic_add(stats, 0, prior_var - 1.0 / new_w)
+        # Useful information only: variance reduction above the target precision. Re-observing a
+        # surface that is already precise enough adds nothing (that frame is not worth keeping).
+        useful = wp.max(prior_var - target_var, 0.0) - wp.max(1.0 / new_w - target_var, 0.0)
+        wp.atomic_add(stats, 0, useful)
         wp.atomic_add(stats, 1, 1.0)
         if w <= 0.0:
             wp.atomic_add(stats, 2, 1.0)
@@ -183,6 +197,11 @@ def _integrate_kernel(
     cu = int(wp.round(color_k[0] * qc[0] / qc[2] + color_k[2]))
     cv = int(wp.round(color_k[1] * qc[1] / qc[2] + color_k[3]))
     if cu < 0 or cv < 0 or cu >= rgb.shape[1] or cv >= rgb.shape[0]:
+        return
+    wp.atomic_add(stats, 4, 1.0)
+    if color_info[i, j, k] < color_target_info:
+        wp.atomic_add(stats, 5, 1.0)
+    if commit == 0:
         return
     c = wp.vec3(float(rgb[cv, cu, 0]), float(rgb[cv, cu, 1]), float(rgb[cv, cu, 2])) / 255.0
     cw = color_info[i, j, k]
@@ -258,7 +277,14 @@ def _k4(k: np.ndarray) -> wp.vec4:
 
 
 class GpuTsdfVolume:
-    def __init__(self, spec: VolumeSpec, device: str = "cuda:0", noise: NoiseModel | None = None):
+    def __init__(
+        self,
+        spec: VolumeSpec,
+        device: str = "cuda:0",
+        noise: NoiseModel | None = None,
+        target_sigma_m: float | None = None,
+    ):
+        """``target_sigma_m`` (default half a voxel): precision beyond which more readings carry no useful information."""
         wp.init()
         if device.startswith("cuda") and not wp.is_cuda_available():
             device = "cpu"
@@ -270,9 +296,15 @@ class GpuTsdfVolume:
         self.outlier = wp.zeros(spec.dims, dtype=float, device=device)
         self.color = wp.zeros(spec.dims, dtype=wp.vec3, device=device)
         self.color_info = wp.zeros(spec.dims, dtype=float, device=device)
-        self._stats = wp.zeros(4, dtype=float, device=device)
+        self._stats = wp.zeros(6, dtype=float, device=device)
+        self._placeholders: dict[tuple[int, int], wp.array] = {}
         self._empty_rgb = wp.zeros((1, 1, 3), dtype=wp.uint8, device=device)
         self.frames_integrated = 0
+        target = 0.5 * spec.voxel_size if target_sigma_m is None else target_sigma_m
+        self._target_var = (target / spec.trunc_m) ** 2
+        # Color counts as covered after the equivalent of ~2 readings at 1.5 m.
+        sigma_15 = self.noise.sigma0_m + self.noise.k_per_m * 1.5 ** 2
+        self._color_target_info = 2.0 * self.sigma_to_info(sigma_15)
 
     def sigma_to_info(self, sigma_m: float) -> float:
         return float((self.spec.trunc_m / max(sigma_m, 1e-9)) ** 2)
@@ -285,14 +317,18 @@ class GpuTsdfVolume:
         rgb: np.ndarray | None = None,
         color_intrinsic: np.ndarray | None = None,
         color_extrinsic_wc: np.ndarray | None = None,
+        *,
+        commit: bool = True,
     ) -> FrameScore:
+        """Fuse a frame (``commit=False``: only score it, leaving the volume unchanged)."""
         depth = wp.array(np.ascontiguousarray(depth_m, dtype=np.float32), dtype=float, device=self.device)
         has_color = rgb is not None and color_intrinsic is not None and color_extrinsic_wc is not None
-        rgb_array = (
-            wp.array(np.ascontiguousarray(rgb[:, :, :3], dtype=np.uint8), dtype=wp.uint8, device=self.device)
-            if has_color
-            else self._empty_rgb
-        )
+        if not has_color:
+            rgb_array = self._empty_rgb
+        elif rgb.dtype == np.uint8 and rgb.ndim == 3:
+            rgb_array = wp.array(np.ascontiguousarray(rgb[:, :, :3]), dtype=wp.uint8, device=self.device)
+        else:  # a (height, width) shape: score color coverage without pixels
+            rgb_array = self._placeholder_rgb(int(rgb[0]), int(rgb[1]))
         n = self.noise
         self._stats.zero_()
         wp.launch(
@@ -307,12 +343,38 @@ class GpuTsdfVolume:
                 wp.vec4(n.sigma0_m, n.k_per_m, n.edge_ratio, n.edge_inflation),
                 wp.vec4(n.process_noise, n.gate_sigma ** 2, self.sigma_to_info(n.confident_sigma_m), n.reinit_outlier_rate),
                 self._stats,
+                float(self._target_var),
+                int(commit),
+                float(self._color_target_info),
             ],
             device=self.device,
         )
-        self.frames_integrated += 1
-        gain, surface, new, rejected = (float(v) for v in self._stats.numpy())
-        return FrameScore(info_gain=gain, surface_voxels=int(surface), new_voxels=int(new), rejected=int(rejected))
+        if commit:
+            self.frames_integrated += 1
+        gain, surface, new, rejected, visible, uncovered = (float(v) for v in self._stats.numpy())
+        return FrameScore(
+            info_gain=gain, surface_voxels=int(surface), new_voxels=int(new), rejected=int(rejected),
+            color_visible=int(visible), color_uncovered=int(uncovered),
+        )
+
+    def _placeholder_rgb(self, height: int, width: int) -> wp.array:
+        key = (height, width)
+        if key not in self._placeholders:
+            self._placeholders[key] = wp.zeros((height, width, 3), dtype=wp.uint8, device=self.device)
+        return self._placeholders[key]
+
+    def score(
+        self,
+        depth_m: np.ndarray,
+        depth_intrinsic: np.ndarray,
+        depth_extrinsic_wc: np.ndarray,
+        color_size: tuple[int, int] | None = None,
+        color_intrinsic: np.ndarray | None = None,
+        color_extrinsic_wc: np.ndarray | None = None,
+    ) -> FrameScore:
+        """Information this frame would add (geometry, and color coverage if a color camera is given), without changing the volume."""
+        rgb = None if color_size is None else np.asarray(color_size, dtype=np.int64)
+        return self.integrate(depth_m, depth_intrinsic, depth_extrinsic_wc, rgb, color_intrinsic, color_extrinsic_wc, commit=False)
 
     def observed_voxel_count(self) -> int:
         counter = wp.zeros(1, dtype=int, device=self.device)
