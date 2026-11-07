@@ -153,7 +153,7 @@ in front of the eyes unless a hand is near it.
 
 ## Sources
 
-- Gravity Sketch controllers layout: https://help.gravitysketch.com/hc/en-us/articles/9380640515485-controllers-layout
-- Gravity Sketch edit objects: https://help.gravitysketch.com/hc/en-us/articles/5902620122269-Edit-Objects
-- Gravity Sketch editing properties: https://help.gravitysketch.com/hc/en-us/articles/5902621323293-Editing-Properties
-- Gravity Sketch grid: https://help.gravitysketch.com/hc/en-us/articles/5912795706397-Grid
+- Gravity Sketch controllers layout: <https://help.gravitysketch.com/hc/en-us/articles/9380640515485-controllers-layout>
+- Gravity Sketch edit objects: <https://help.gravitysketch.com/hc/en-us/articles/5902620122269-Edit-Objects>
+- Gravity Sketch editing properties: <https://help.gravitysketch.com/hc/en-us/articles/5902621323293-Editing-Properties>
+- Gravity Sketch grid: <https://help.gravitysketch.com/hc/en-us/articles/5912795706397-Grid>
