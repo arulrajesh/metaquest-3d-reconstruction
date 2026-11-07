@@ -19,7 +19,8 @@ def test_splat_file_round_trip_and_ordering(tmp_path):
     assert np.abs(back["quats_wxyz"] - q).max() < 1.0 / 128 + 1e-6
 
 
-def test_splats_train_on_synthetic_room(tmp_path):
+@pytest.mark.parametrize("gpu_image_budget_gb", [4.0, 0.0], ids=["images-on-gpu", "images-in-cpu-memory"])
+def test_splats_train_on_synthetic_room(tmp_path, gpu_image_budget_gb):
     torch = pytest.importorskip("torch")
     pytest.importorskip("gsplat")
     pytest.importorskip("warp")
@@ -35,7 +36,7 @@ def test_splats_train_on_synthetic_room(tmp_path):
     project = write_synthetic_capture(tmp_path / "room", SyntheticCaptureSpec(frames=32, color_size=320, depth_size=96, color_format="jpg"))
     built = fuse_session(project, voxel_size_m=0.04)
     result = train_splats(load_bake_views(project), built.mesh.vertices, built.mesh.colors,
-                          SplatSettings(iterations=600, downscale=1, max_init_points=60_000))
+                          SplatSettings(iterations=600, downscale=1, max_init_points=60_000, gpu_image_budget_gb=gpu_image_budget_gb))
     assert len(result.means) > 1000
     assert result.holdout_psnr > 22.0  # held-out views: the splats generalize, not just memorize
     # Splats sit on the room surfaces (Open3D world -> Unity world for the analytic scene).
@@ -79,3 +80,11 @@ def test_camera_opt_recovers_a_per_camera_focal_error(tmp_path):
     relative = [o - g for o, g in zip(off["focal_scale_pct"], good["focal_scale_pct"])]
     assert all(-2.6 < v < -1.4 for v in relative), (good, off)
     assert good["translation_mm"] == [0.0, 0.0, 0.0]  # rig translation is off by default
+
+
+def test_splat_iterations_grow_with_views_within_bounds():
+    from mq3drecon.workflows.web_location import splat_iterations_for
+
+    assert splat_iterations_for(495) == 15_000  # the tuned recapture schedule is unchanged
+    assert splat_iterations_for(4_000) == 40_000  # ~10 visits per view on long fidelity captures
+    assert splat_iterations_for(20_000) == 60_000  # capped (~50 min)

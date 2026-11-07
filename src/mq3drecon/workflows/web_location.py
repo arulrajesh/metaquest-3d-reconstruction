@@ -47,7 +47,16 @@ def _thumbnail(project_dir: Path, out_path: Path, size: int = 512) -> bool:
     return bool(cv2.imwrite(str(out_path), image, [cv2.IMWRITE_JPEG_QUALITY, 85]))
 
 
-SPLAT_MAX_VIEWS = 2000  # half-resolution uint8 views: ~1.2 MB each on the GPU at 1280² capture
+# Half-resolution uint8 views, ~2.2 MB each at 1728² capture. Fidelity captures (5-15 min, up to 4 color frames
+# per second per eye after compaction) reach thousands; beyond SplatSettings.gpu_image_budget_gb they are kept
+# in CPU memory (6000 views ~ 13 GB of the laptop's 32 GB).
+SPLAT_MAX_VIEWS = 6000
+
+
+def splat_iterations_for(train_views: int) -> int:
+    """Default schedule: 15k iterations (tuned on ~500 views), growing with the view count so that each view
+    is still visited ~10 times; capped at 60k (~50 min on the laptop GPU)."""
+    return int(min(60_000, max(15_000, 10 * train_views)))
 
 
 def load_splat_views(project_dir: Path):
@@ -97,7 +106,7 @@ def _train_splats_spirula(project_dir: Path, seed_points, seed_colors, out: Path
     }
 
 
-def _train_splats(seed_points, seed_colors, views, out: Path, enabled: bool, iterations: int) -> tuple[str | None, dict]:
+def _train_splats(seed_points, seed_colors, views, out: Path, enabled: bool, iterations: int | None) -> tuple[str | None, dict]:
     """Train and write ``scene.splat`` if gsplat is available; the location is still valid without it.
 
     Seeds are only vertices some color camera observed: never-seen geometry would yield untrained gray splats.
@@ -114,6 +123,8 @@ def _train_splats(seed_points, seed_colors, views, out: Path, enabled: bool, ite
         logger.info("Splat training skipped (%s); install torch + gsplat to enable it", exc)
         return None, {}
     # ``views`` are already at training resolution (half size), so no further downscale here.
+    if iterations is None:
+        iterations = splat_iterations_for(len(views) - len(views) // SplatSettings().holdout_every)
     result = train_splats(views, seed_points, seed_colors, SplatSettings(iterations=iterations, downscale=1))
     write_splat(out / "scene.splat", result.means, result.scales, result.quats_wxyz, result.rgb, result.opacity)
     asset, extra = "scene.splat", {"splat_format": "splat-dc"}
@@ -195,7 +206,7 @@ def build_location(
     textured_triangles: int = 150_000,
     texture_size: int = 4096,
     splats: bool = True,
-    splat_iterations: int = 15000,
+    splat_iterations: int | None = None,  # None: splat_iterations_for(view count)
     splat_backend: str = "gsplat",
     spirula_path: str | Path | None = None,
     spirula_iterations: int = 30_000,

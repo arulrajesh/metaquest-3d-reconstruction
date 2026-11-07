@@ -28,6 +28,9 @@ class SplatSettings:
     sh_degree: int = 3
     holdout_every: int = 8
     seed: int = 0
+    # Training images live on the GPU up to this size, otherwise in CPU memory (copied one per step).
+    # 12 GB laptop GPU: ~1M splats with Adam state and rasterization buffers need ~3 GB, the live receiver ~2 GB.
+    gpu_image_budget_gb: float = 4.0
     # Real captures: headset poses are a little off for the passthrough cameras, and auto-exposure
     # changes between frames. Both make views disagree, which shows up as blur and floaters.
     pose_opt: bool = False  # learn a small SE(3) correction per training view
@@ -138,14 +141,30 @@ def train_splats(
     for view in views:
         h, w = view.rgb.shape[:2]
         sw, sh = w // settings.downscale, h // settings.downscale
-        images.append(cv2.resize(view.rgb, (sw, sh), interpolation=cv2.INTER_AREA))
+        # Already at training size (the build passes half-res views): reuse the array, no second copy in RAM.
+        same = (sw, sh) == (w, h) and view.rgb.dtype == np.uint8 and view.rgb.flags.c_contiguous
+        images.append(view.rgb if same else cv2.resize(view.rgb, (sw, sh), interpolation=cv2.INTER_AREA))
         k = view.intrinsic.copy().astype(np.float64)
         k[0, :] *= sw / w
         k[1, :] *= sh / h
         ks.append(k)
         viewmats.append(view.world_to_camera)
     height, width = images[0].shape[:2]
-    images_t = torch.tensor(np.stack(images), dtype=torch.uint8, device=device)  # uint8 on the GPU: 4x less memory than float, so many more views fit
+    # uint8 on the GPU (4x less than float) while they fit the budget; beyond it (long fidelity captures:
+    # thousands of views) they stay in CPU memory and one image per step is copied over (~2 MB, negligible).
+    image_bytes = sum(image.nbytes for image in images)
+    images_on_gpu = not str(device).startswith("cuda") or image_bytes <= settings.gpu_image_budget_gb * 1024**3
+    if images_on_gpu:
+        images_t = torch.tensor(np.stack(images), dtype=torch.uint8, device=device)
+        del images
+
+        def target_image(index: int):
+            return images_t[index]
+    else:
+        cpu_images = [torch.from_numpy(image) for image in images]  # zero-copy views of the numpy arrays
+
+        def target_image(index: int):
+            return cpu_images[index].to(device, non_blocking=True)
     viewmats_t = torch.tensor(np.stack(viewmats), dtype=torch.float32, device=device)
     ks_t = torch.tensor(np.stack(ks), dtype=torch.float32, device=device)
     all_idx = np.arange(len(views))
@@ -281,7 +300,7 @@ def train_splats(
         index = int(rng.choice(train))
         sh_degree = min(step // 1000, settings.sh_degree)
         image, info = render(index, sh_degree)
-        target = images_t[index].float() / 255.0
+        target = target_image(index).float() / 255.0
         loss = 0.8 * torch.abs(image - target).mean() + 0.2 * (1.0 - _ssim(image, target))
         if use_mcmc:  # gsplat's MCMC preset: keep splats sparse and small so relocation has room to work
             loss = loss + settings.mcmc_opacity_reg * torch.sigmoid(params["opacities"]).mean()
@@ -311,7 +330,7 @@ def train_splats(
         def mean_psnr(indices) -> float:
             if len(indices) == 0:
                 return float("nan")
-            return float(np.mean([_psnr(render(int(i), settings.sh_degree)[0], images_t[int(i)].float() / 255.0) for i in indices]))
+            return float(np.mean([_psnr(render(int(i), settings.sh_degree)[0], target_image(int(i)).float() / 255.0) for i in indices]))
 
         train_psnr, holdout_psnr = mean_psnr(train[:: max(1, len(train) // 16)]), mean_psnr(holdout)
         opacity = torch.sigmoid(params["opacities"]).cpu().numpy()

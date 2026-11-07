@@ -89,7 +89,8 @@ class LiveBuildConfig:
     """Keep the uncompacted recording as ``<name>_full`` instead of deleting it."""
     splats: bool = True
     """Train a Gaussian splat for each location when torch + gsplat are installed."""
-    splat_iterations: int = 15000  # with densification capped at 5250 (SplatSettings): +1.3 dB holdout, same splat count
+    splat_iterations: int | None = None
+    """None: 15k for ~500 views, ~10 visits per view for more (``web_location.splat_iterations_for``), capped at 60k."""
     splat_backend: str = "gsplat"
     """``"gsplat"`` (built in) or ``"spirula"`` (external Spirula Studio binary; on the 2026-11-07 recapture it scored
     29.9 dB / 36% fine detail on held-out views vs our 27.1 dB / 13%). Falls back to gsplat if Spirula is missing."""
