@@ -43,7 +43,14 @@ This fork extends MQ3DRecon with **live streaming reconstruction** (Quest 3 → 
 - **adb:** two copies exist, one on PATH from Touch Portal and one at `%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe`. Mismatched versions kill each other's server; pass `--adb` to pin one.
 - **Bash tool quirk:** a literal backslash-x-zero-zero escape in a command (heredoc or `-c`) reaches the file as a real NUL byte. Write files with such escapes using the Write/Edit tools, or build the bytes in code (`bytes([0])`).
 - **Unity 6000.4.5f1 with Android support** is at `C:\Users\Arul\Unity\Hub\Editor\6000.4.5f1\Editor\Unity.exe`.
-  - Unity Hub 3.22.5 is an MSIX app: `C:\Program Files\WindowsApps\UnityTechnologies.UnityHub_3.22.5.65535_x64__2vrhnee42bhxm\app\Unity Hub.exe`.
+  - Unity Hub is an MSIX app that updates itself, and its versioned folder changes with it (3.22.5 → 3.22.6 on 2026-11-07). Start it with:
+
+    ```powershell
+    Start-Process (Join-Path (Get-AppxPackage UnityTechnologies.UnityHub).InstallLocation 'app\Unity Hub.exe')
+    ```
+
+    Run `Remove-Item Env:ELECTRON_RUN_AS_NODE` first.
+  - The headset app has no on-device compile check beyond `Tools/StreamingCheck`, which covers `Streaming/*.cs` against stubs: `dotnet build` there. Shaders and other scripts are only checked by a real Unity build.
   - The Hub CLI needs `Remove-Item Env:ELECTRON_RUN_AS_NODE` first. VS Code sets it to 1, which turns the Hub into plain Node.
   - The Personal license lives in the MSIX's private `LocalCache`, not in `%LOCALAPPDATA%\Unity\licenses`.
     - Batch builds get the license over the named pipe of the Hub's licensing client. **Unity Hub must be running when you build.**
