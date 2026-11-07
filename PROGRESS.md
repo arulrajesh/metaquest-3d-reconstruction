@@ -34,6 +34,27 @@ Last updated: 2026-11-07
 
     - The old "stereo ruled out" check (`uvdebug/splat_eyes.py`) ran **before** the intrinsics fix (19 dB holdout), so it did not count.
   - **Viewer: no fixed foveation by default** (`20e2a35`). three.js defaults to the strongest foveation, which blurs the periphery. `&fov=` and `&scale=` tune it; `&scale=1.25` is roughly native.
+  - **Headset fidelity capture mode: built and installed (fork `b713f5f`, 2026-11-07 11:20). Not yet tried by the user.**
+    - **Throughput.** The old pipeline topped out at 6.6 stereo pairs/s:
+      - cameras sampled at 10 fps;
+      - a 3 cm / 3° gate;
+      - one JPEG encoder at about 75 ms per 1728² frame;
+      - the network thread sent one color frame per wake.
+
+      Now it samples at 30 fps, makes the send decision *before* `GetColors()` and the 12 MB copy, runs 3 encoder threads, uses a 1 cm / 1° gate (up to 15 pairs/s), and drains every encoded frame per wake.
+    - **Blur.** No frames are sent above 30°/s. The HUD shows steady / "slower" (>20°/s) / "SLOW DOWN".
+    - **Coverage by capture quality.** 5 cm voxels from Quest depth record two things: distinct slow viewpoints (moved ≥ 5 cm or 5°) and the closest sharp view.
+      - Red: seen only. Yellow: partly captured. Green: ≥ 6 views, one of them within 0.8 m.
+      - Finished areas fade out.
+      - The laptop live-mesh overlay is off by default.
+    - **To check on the headset:**
+      - the real color rate (receiver line `rx color`);
+      - encoder drops;
+      - whether the dots read well (`pointSizeMeters` 0.03 in the scene);
+      - CPU heat.
+    - **Build quirk:** the first Gradle `:launcher:packageRelease` failed with `IncrementalSplitterRunnable` and no cause given; a plain re-run passed (probably a transient file lock).
+      - Re-run command: Unity's `java -classpath ...gradle-launcher-9.1.0.jar org.gradle.launcher.GradleMain :launcher:packageRelease` in `Library/Bee/Android/Prj/IL2CPP/Gradle`.
+      - Then copy `launcher/build/outputs/apk/release/launcher-release.apk` to `Builds/`.
   - **Running:** `uvdebug/eye_fix.py` trains four variants (15k iterations each) and scores the same held-out views at native resolution: headset poses, per-eye rotation fix, fix with fast frames dropped, and fix with the same number dropped at random. Log: `uvdebug/eye_fix.log`.
 
 - **The first streamed recapture is done (2026-11-06, 17:55): `~/MQ3DRecon/sessions/20261106_175535_2`.** The streaming app, live fusion and headset feedback all ran end to end.
