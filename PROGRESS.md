@@ -88,6 +88,14 @@ Last updated: 2026-11-07
       - 739k splats, 13 min of training.
       - Half-res holdout 31.97 dB, against 31.47 for the earlier `recapture-2026-11-07`.
       - Calibration matches the A/B (pitch +0.15/+0.16°).
+  - **Training at scale (`750ea5b`):**
+    - Images beyond `gpu_image_budget_gb` (4 GB) stay in CPU memory, and one is copied per step; this is tested.
+    - `SPLAT_MAX_VIEWS` goes from 2000 to 6000.
+    - Iterations come from `splat_iterations_for(views)`: 15k up to ~1500 views, then ~10 visits per view, capped at 60k.
+    - Compaction still keeps the sharpest color frame per 0.25 s per eye: ~4 per second per eye, ~4800 views for 10 min.
+  - **Receiver restarted on the new code (2026-11-07 ~13:20, idle):** `mq3drecon live --config ~/MQ3DRecon/live_fidelity.yaml --adb <SDK adb>`.
+    - That config keeps the uncompacted recording (`<session>_full`) of the first fidelity captures, so the number of frames worth keeping per second can be measured.
+    - Delete those copies once that's settled.
   - **Takeaway so far:** software fixes on existing data give about +0.6 dB. The remaining 3 px disagreement is mostly blur and pose noise in the frames themselves, so the next big lever is the new capture (denser, slower, closer), not more training tricks.
 
 - **The first streamed recapture is done (2026-11-06, 17:55): `~/MQ3DRecon/sessions/20261106_175535_2`.** The streaming app, live fusion and headset feedback all ran end to end.
