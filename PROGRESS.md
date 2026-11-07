@@ -2,7 +2,7 @@
 
 Plan: `PLAN.md`. Future release: `FUTURE.md`. Update this file at the end of every session and commit it.
 
-Last updated: 2026-11-06
+Last updated: 2026-11-07
 
 ## Milestones
 
@@ -17,6 +17,24 @@ Last updated: 2026-11-06
 | M6 Local site viewer | **v2:** `serve-locations` (gallery, three.js WebXR viewer, `adb reverse` 8080). v1 (`a44ec28`) had teleport and snap turn. **v2 adds joystick movement in the style of Google Earth VR** (user request, 2026-11-06), specified in `specs/WEB_LOCATION_EXPORT.md`. The left stick glides where the controller points, with wall sliding, 40 cm step-up and ground following. The right stick snap-turns, flies up/down, and lands on click. There is a comfort vignette (`&vignette=0` turns it off) and desktop WASD/QE. The collider now has a BVH (`three-mesh-bvh` 0.9.16), so a ray costs 0.03 ms instead of 20 ms; without it, the v1 teleport aim alone would have hurt frame rate on Quest. Checked in desktop Chrome: simulated walks stop 0.25 m from each wall and slide into corners, and WASD/QE move at the set speeds. **The VR stick path is not yet tried in the headset.** |
 
 ## Current state (read first)
+
+- **Direction changed (user, 2026-11-07): fidelity first; live updating dropped** (`PLAN.md` §1b, M7).
+  - In the headset, ours (SH3) and Spirula (SH3) were "both similar and equally bad". Hyperscape Capture is "amazing".
+  - The user's hypothesis: too little detail is captured because there is too little feedback while capturing.
+  - **Photo-to-model misalignment on `20261107_012159`** (scratchpad `uvdebug/misalign.py`, `misalign_ours.csv`):
+    - Method: native 1728², DIS optical flow from the render of `recapture-2026-11-07-ours-sh3` to each photo, textured pixels only.
+    - Median |flow| is 3.2 px on train views and 3.4 px on held-out views.
+
+    | Cause | Size | Fix |
+    | --- | --- | --- |
+    | **Head turning speed** | Local residual 1.3 px below 10°/s, 2.2 px at 10–25°/s, **5.0 px at 25–50°/s**; sharpness halves. 45% of frames were above 25°/s. | Capture (slow down, with a headset cue) and blur-aware selection |
+    | **Left vs right camera** | Constant mean shift, left (−1.1, +0.5) px, right (+2.1, +0.7) px: **~3 px apart horizontally**, the DC export's "doubled edges" | Software; per-eye correction being tested |
+    | **Per-frame pose noise** | Global shift 1.35 px median, 4 px p90 | Software; fair per-frame refinement next |
+    | **Time offset / rolling shutter** | None: fits give 0.1 ms and 1 ms with R² ≈ 0. `GetCameraPose()` already samples the head pose at the frame timestamp (MRUK source). | — |
+
+    - The old "stereo ruled out" check (`uvdebug/splat_eyes.py`) ran **before** the intrinsics fix (19 dB holdout), so it did not count.
+  - **Viewer: no fixed foveation by default** (`20e2a35`). three.js defaults to the strongest foveation, which blurs the periphery. `&fov=` and `&scale=` tune it; `&scale=1.25` is roughly native.
+  - **Running:** `uvdebug/eye_fix.py` trains four variants (15k iterations each) and scores the same held-out views at native resolution: headset poses, per-eye rotation fix, fix with fast frames dropped, and fix with the same number dropped at random. Log: `uvdebug/eye_fix.log`.
 
 - **The first streamed recapture is done (2026-11-06, 17:55): `~/MQ3DRecon/sessions/20261106_175535_2`.** The streaming app, live fusion and headset feedback all ran end to end.
   - **Stream:** direct Wi-Fi TCP (endpoint file) at about 5 color and 7.5 depth fps, with 0 headset drops. Fusion takes 20–50 ms per keyframe.
@@ -212,17 +230,23 @@ Last updated: 2026-11-06
 
 ## Next steps
 
-1. **M3 C# client** (`QuestRealityCapture`, branch `feature/live-streaming`):
-   - `LiveStreamClient`: endpoint resolution, send and receive threads, reconnect with resume.
-   - Hooks in `MrukCameraRecorder`, `DepthMapExporter` (readback to callback), and `RecordingSessionController`.
-   - Overlay renderer for `SURFACE_MESH` (confidence-colored, toggle), keyframe markers, and a wrist HUD from `STATUS`.
-   - Boundaryless manifest plus INTERNET permission.
-   - Headset-side gating: motion and blur from the pose filter, so redundant frames are not even sent.
-   - The user must install Unity 6000.4.5f1 with Android Build Support to build it.
-2. **First live stream from the headset.** Verify JPEG orientation (`row_order`), bandwidth, and latency.
-3. **M5:** textured GLB from keyframes (D16), collider, `location.json`.
-4. **M6:** local WebXR site and `serve-locations` (`localhost:8080` plus `adb reverse`).
-5. **M4 / outdoor:** `onnxruntime-gpu` plus Fast-FoundationStereo for outdoor depth.
+M7, fidelity first (`PLAN.md` §1b). Live-mode work (M2–M4 extras) is paused.
+
+1. **Laptop fixes on existing data:**
+   - per-eye correction (`eye_fix.py` results);
+   - fair per-frame pose refinement;
+   - blur-aware frame selection.
+
+   If they help, put them in the build.
+2. **Headset fidelity capture mode** (fork):
+   - on-headset coverage painting (views and closeness) plus a "slow down" cue;
+   - dense frames (gate ~1 cm / 1°);
+   - 5–15 min sessions;
+   - no live fusion.
+
+   Measure the encoder and Wi-Fi limits first.
+3. **Training at scale:** thousands of views from CPU memory, then compare Spirula and ours on held-out views.
+4. **Viewing:** Quest browser vs laptop rendering over Air Link. That is the user's decision, after 1–3.
 
 ## Known issues and risks
 
@@ -243,3 +267,4 @@ Last updated: 2026-11-06
 | 2026-11-06 | Outdoor is a first-class mode: stereo depth, splats for the far field, ground heightfield collider. |
 | 2026-11-06 | Kalman filtering decides what is worth keeping (D17). Two-way feedback is in this release (D18). Raw MRUK principal point (D19). |
 | 2026-11-06 | Controller annotations, object detection, voice narration, and Gravity Sketch-style interaction are next release (`FUTURE.md`). |
+| 2026-11-07 | User: "forget about the live updating and focus on fidelity". Hyperscape is the bar. M7 replaces live-mode work (`PLAN.md` §1b). |

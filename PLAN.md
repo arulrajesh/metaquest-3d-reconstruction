@@ -1,6 +1,6 @@
 # Plan: Live Streaming Reconstruction and Hosted VR Locations
 
-Status: active, 2026-11-06. Progress is tracked in `PROGRESS.md`.
+Status: active, 2026-11-07 (fidelity first, §1b and M7). Progress is tracked in `PROGRESS.md`.
 Branch: `feature/live-streaming-reconstruction` (from `main` at `97d15f7`) in the
 fork `arulrajesh/metaquest-3d-reconstruction`. The headset side is on
 `feature/live-streaming` in `arulrajesh/QuestRealityCapture`.
@@ -37,6 +37,26 @@ recording is the master copy of every session.
 4. Press stop. The laptop closes the session and automatically builds the web
    location package: collider mesh, `location.json`, COLMAP export, and a
    splat if a trainer is configured.
+
+### 1b. Fidelity first (user decision, 2026-11-07)
+
+After comparing our splats with Meta Hyperscape Capture in the headset, the user dropped live updating
+as a goal: "Let's forget about the live updating and focus on fidelity." Hyperscape-level photorealism is
+the bar. The live preview, live TSDF and laptop-to-headset feedback mesh are no longer worked on. They stay
+in the code where they still help (the build's collider mesh comes from the TSDF).
+
+The user's hypothesis is that not enough detail is captured because there is too little feedback while
+capturing. Measurements on the 2026-11-07 recapture (`PROGRESS.md`) support part of it:
+
+- **Too little data.** 90 s gave 565 views. Hyperscape recommends captures of up to 30 min, slow movement,
+  close passes, and continuing until the coverage mesh has no holes. View count was our strongest lever
+  (halving it cost 3 dB).
+- **Fast head turns blur frames.** The photo-to-model misalignment is 1.3 px when slow and 5 px at
+  25–50°/s; 45% of the frames were taken that fast.
+- **Software errors that no capture fixes:** a constant left/right camera disagreement (~3 px) and per-frame
+  pose noise (~1.3 px median).
+
+Milestone M7 (below) replaces the remaining live-mode work.
 
 ---
 
@@ -314,6 +334,31 @@ Original scope, for when public hosting starts:
   - correct MIME types, CORS, and range requests for large files;
   - a gallery page listing locations.
 - Exit: open a link in Quest Browser, press "Enter VR", and walk around a captured indoor and outdoor location at a stable frame rate.
+
+### M7: Fidelity capture (user decision, 2026-11-07; see §1b)
+
+Goal: a location the user judges close to Hyperscape in the headset.
+
+1. **Laptop fixes on existing data** (no recapture needed).
+   - Per-camera (left/right) extrinsic correction, estimated from photo-to-model optical flow.
+   - Per-frame pose refinement, scored fairly: held-out views get test-time pose alignment.
+   - Blur-aware frame selection that drops or down-weights frames taken while turning fast.
+   - Diagnostic: `misalign.py`-style flow residuals per eye and per angular speed, rerun after each change.
+2. **Headset fidelity capture mode** (fork `QuestRealityCapture`).
+   - No live fusion and no laptop feedback mesh.
+   - Feedback computed on the headset:
+     - surfaces painted by coverage, meaning how many sharp views and how close;
+     - a "slow down" cue when head speed would blur frames;
+     - optionally, a brightness warning.
+   - Much denser frames: motion gate about 1 cm / 1° instead of 3 cm / 3°, and the rate the encoder allows.
+   - Sessions of 5–15 min.
+   - Frames still go to the laptop, which keeps the master copy. If Wi-Fi or the JPEG encoder can't keep up,
+     record on the headset and pull over adb automatically (measure first).
+3. **Training at scale.** Thousands of views streamed from CPU memory (the laptop GPU has 12 GB). Use
+   longer schedules, SH3, and Spirula or our trainer, whichever wins on held-out views and in the headset.
+4. **Viewing.** The Quest browser renders about 1M splats on the headset. Hyperscape renders on servers and
+   streams video. If on-device rendering caps fidelity, the option is rendering on the laptop and streaming
+   over Air Link. That is the user's decision, to be made after steps 1–3.
 
 ---
 
