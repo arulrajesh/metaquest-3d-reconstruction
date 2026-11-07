@@ -1,9 +1,9 @@
 # Capture controls and in-app room editing (design)
 
-Status: **design v2, 2026-11-07, awaiting the user's review.** Not implemented. It replaces v1, which was a
-button-per-feature table; the user asked for real thought on the *editing experience* instead.
+Status: **design v3, 2026-11-07.** The user approved the direction of v2 ("looks good") and asked for a check for
+contradictions and improvements. That review is at the end. Not implemented.
 
-This document is the spec for the editing UI in the headset capture app (`QuestRealityCapture` fork). It follows
+This document specifies room editing for the headset capture app (`QuestRealityCapture` fork). It follows
 `FUTURE.md` §1, §4 and §5.
 
 ## The problem
@@ -15,141 +15,185 @@ User feedback, 2026-11-07:
 - "There are so many buttons and almost everything is unused."
 - "Put some effort into thinking how we can better the editing experience… constrained movement vs free movement, while holding a specific button or trigger."
 
-The task differs from Gravity Sketch's. Here the user isn't sculpting new shapes. They are **making a model agree
-with the room they can already see** through passthrough. So the best constraint is reality itself, and the most
-precise tool is the user's own hand, touching the real corner. Every design choice below follows from that.
+The task is not sculpting, as in Gravity Sketch. It is **making a model agree with the room the user can already see**
+through passthrough. So the best constraint is reality itself, and the most precise tool is the user's own hand,
+touching the real corner.
 
-## What Gravity Sketch does (sources: help centre, see the end)
+## Principles
 
-Gravity Sketch's patterns, and where each one lands in this design:
+1. **One gesture edits: grip grabs.** Grip does nothing else.
+2. **Constrained by default.** Every element moves only in the ways a room allows. The other hand's trigger *changes* the constraint, the way Gravity Sketch's off-hand half-pull does.
+3. **You always see what a grip will do before you squeeze.** The target highlights and a short label says how it will move.
+4. **Each input has one meaning per state.** States are "idle" and "grabbing", and the wrist legend shows the current meanings. No tap-versus-hold tricks on the same button.
+5. **Nothing destructive on a timer.** Every edit can be undone; reset needs a confirmation.
+6. **Nothing in front of the eyes while scanning.** Handles show near the hands or the ray; text and the miniature sit on the wrist.
 
-| Gravity Sketch pattern | Here |
+## Hands
+
+- **Edit hand and tool hand.** The **edit hand** is a setting, by default the **left** (the user's request). The other hand is the **tool hand**.
+  - Fixed idle roles avoid the v2 contradiction: "grab hand" and "modifier hand" only existed while grabbing.
+  - Either grip can still grab. The roles only decide idle bindings and where the miniature lives.
+- **While grabbing,** the grabbing hand is the *grab hand* and the other is the *modifier hand*, whichever physical hands those are.
+
+## 1. Grabbing
+
+- **Near:** the **grab sphere** sits at the controller tip, 3 cm by default.
+  - On grab, the handle **jumps to the sphere centre**. Touch the real corner, squeeze, and the corner is where the hand is. This is the precise path.
+- **Far:** if no handle is within 30 cm of the tip, a **ray** (up to 5 m) picks the handle nearest to it.
+  - A ray grab moves the handle to where the ray meets the handle's constraint plane or axis (**ray-plane drag**). It does not use hand displacement times distance, so far edits stay steady.
+  - Ceiling corners and far walls use this.
+- **Handle visibility:** handles show within 1.5 m of a controller tip **and within 0.5 m of where a ray is pointing**, so far handles appear when aimed at. X shows all handles.
+- **Hover:** before any grab, the target highlights with a label, e.g. "corner · on floor" or "wall · parallel".
+- **What each handle does:**
+
+  | Handle | Grab moves… | Natural constraint |
+  | --- | --- | --- |
+  | ● floor corner | that corner; both walls at it follow | on the floor plane |
+  | ● ceiling corner | the ceiling height (whole room; per-wall heights later) | vertical |
+  | ▬ wall midpoint | the whole wall, staying parallel; both corners follow | along the wall's normal |
+  | ● opening corner | that corner of the door or window (resize) | in the wall plane |
+  | ▬ opening body | the door or window | along the wall, sill fixed for doors |
+  | ● box corner | that corner, opposite one fixed (resize) | in the box's own axes |
+  | ■ box face | that face only (push/pull) | along the face normal |
+  | ◆ box top | the whole box | on its support surface, plus yaw from the hand's twist |
+
+- **Two grips on the same box:** two-handed. Distance between the hands resizes it along the box axis closest to the hand-to-hand direction; twisting turns it.
+  - There is no modifier hand then. Snapping stays on.
+  - A second grip on a *different* element is ignored in v1.
+
+## 2. Constraint modifier: the other hand's trigger
+
+| Modifier trigger (while the other hand grabs) | Movement |
 | --- | --- |
-| **Grab (grip) does everything to an object:** move, rotate, scale. | Grip is the only edit gesture. |
-| **The other hand's trigger is the constraint modifier.** A half-pull snaps to an axis or plane. In edit mode, holding it while grabbing a point *slides* the point along its neighbours instead of moving it freely. | The *other* hand's trigger is the constraint modifier (§2). |
-| **The grabbing hand's own buttons act on what it holds.** The trigger duplicates it; the red button deletes it. With nothing held, the red button is undo. | Same, while grabbing (§4). |
-| **Half-pull previews, full pull commits** (adding points). | Same, when placing (§5). |
-| **Off-hand thumbstick scrubs history.** | Same (§6). |
-| **The grab sphere grows with the thumbstick, so one grab catches several points.** | Grab sphere radius on the thumbstick; several handles are grabbed at once, e.g. both ends of a wall (§1). |
-| **"Restrict face movement" to chosen directions**, and grid snapping. | Each element type has its own default degrees of freedom; snapping uses room axes (§2–3). |
+| released | **Natural:** the element's constraint (table above), with snapping |
+| **half** | **Axis lock:** after 2 cm of motion it locks to the dominant direction, shown as a coloured guide line |
+| **full** | **Unsnapped:** still the natural constraint, but no snapping or inference, for the rare case reality snapping is wrong (glass, mirrors, clutter) |
 
-## 1. One gesture: grip grabs
+- **Axes:** the **grabbed element's own frame** (along and across its wall, vertical), falling back to the room's main axes. Non-rectangular rooms then lock to the wall at hand, not to a global grid.
+- **Reliable half and full pulls:** thresholds with hysteresis (half engages at 0.35 and releases at 0.25; full engages at 0.9 and releases at 0.8), and a **haptic detent** on each crossing. A half-pull then holds without fighting the trigger, and passing through half on the way to full doesn't flicker the lock.
+- **Why full pull is not "free 6-DoF" (v2 said it was):** the data model (floor polygon, one ceiling height, yaw-only boxes) cannot represent a corner off the floor or a tilted box. Sloped ceilings come with per-wall heights later.
 
-- **Each hand grabs with its own grip.** Left or right does not matter; whichever hand is grabbing is the *grab hand*, and the other is the *modifier hand*. This keeps the user's request (left grip) without forcing handedness.
-- **Near:** a **grab sphere** sits at the controller tip, radius 3 cm by default. The grab hand's thumbstick up/down changes it, from 1 to 25 cm, while not grabbing. Everything inside is grabbed together. This is the precise way: touch the real corner and grab.
-- **Far:** with nothing in the sphere, a short **ray** (up to 5 m) picks the handle nearest to it. Use it for ceiling corners and far walls.
-- **What gets grabbed:** handles appear only within about 1.5 m of a controller tip. The scanning view stays clean (user feedback: overlays in front of the eyes while scanning are unpleasant). X shows all handles.
+## 3. Snapping (natural and axis-locked modes)
 
-  | Handle | Grabbing it… |
-  | --- | --- |
-  | ● floor corner | moves that corner; the two walls meeting there follow |
-  | ● ceiling corner | sets the ceiling height (all walls) |
-  | ▬ wall midpoint (bar) | moves the whole wall, staying parallel; both corners follow |
-  | ● opening corner | resizes the door or window on its wall |
-  | ▬ opening body | slides the door or window along its wall |
-  | ● box corner | resizes the box from the opposite corner |
-  | ■ box face (centre) | push/pull that face (SketchUp-style), only along its normal |
-  | ◆ box top (centre) | moves the box on whatever it rests on, and turns it about vertical |
-  | the mini model (on the left wrist) | the same handles, in miniature: ceiling corners and far walls without walking or stretching |
+Snapping happens **inside the active constraint**: a floor corner only snaps to targets it can reach on the floor plane.
 
-## 2. Constrained by default, free on demand (modifier hand trigger)
+Priority:
 
-Rooms are architectural, so **the default movement is already constrained to what makes sense for that element**.
-The modifier hand's trigger changes the constraint while held:
+1. **Reality:** the real surface along the constrained direction (Quest depth or the Space Setup global mesh). Corners go where two real wall surfaces meet; box faces sit flush with the real object.
+2. **Alignment inference,** as in SketchUp: in line with another corner along the element's axes, on an edge's extension, parallel or perpendicular to another wall. Shown as dashed lines.
+3. **Angles:** 90° and 45° between walls; box yaw to the wall it faces.
+4. **Increments:** 1 cm.
 
-| Modifier hand trigger | Constraint | Typical use |
-| --- | --- | --- |
-| released (default) | **Natural:** floor corners move on the floor plane; walls move along their normal; boxes slide on their support surface and turn about vertical; openings stay on their wall; box faces move along their normal | Almost everything |
-| **half-pull** (held) | **Axis lock:** after 2 cm of motion the movement locks to the dominant **room axis** (along or across the room's main walls, or vertical). A coloured guide line shows it. Release the trigger to unlock. | Squaring a corner, lining up a wall, raising something straight up |
-| **full pull** (held) | **Free:** full 6-DoF, ignoring the natural plane. A floor corner may leave the floor; a box may tilt. | The rare odd case: sloped ceiling edges, a leaning shelf |
-
-- **Room axes, not world axes.** Axis lock and angle snapping use the room's own frame, aligned to its longest wall, so "straight" means parallel to the walls. Headset world axes are arbitrary.
-- **Visual cue:**
-  - natural constraint: a faint patch of the active plane around the handle;
-  - axis lock: a long coloured line (room-X red, room-Z blue, vertical green);
-  - free: no guide.
-
-## 3. Snapping: reality first
-
-Snapping is on while grabbing. Candidates are listed in priority order, each with a small label and a **haptic tick** when
-it engages:
-
-1. **Reality.** The grabbed point snaps to the real surface under it: the Quest depth or the Space Setup global mesh, ray-cast along the constrained direction.
-   - Corners snap to where two real wall surfaces meet (intersection of nearby depth planes).
-   - Box faces snap flush to the real object's surface.
-2. **Alignment with other elements** (SketchUp-style inference): a dashed line appears when the point lines up with another corner along a room axis, sits on an edge's extension, or makes a wall parallel or perpendicular to another.
-3. **Angles:** 90° and 45° between walls, and box yaw to the room axes.
-4. **Increments:** lengths and offsets to 1 cm, or 5 cm with a wider grab sphere.
-
-- **Bypass:** the grab hand's thumbstick click, held, ignores all snapping for that drag.
-- **Live dimensions** while dragging:
-  - lengths of both walls at a corner;
+- **Sticky snaps:** a snap holds until the hand moves 2 cm past it, so a snapped point doesn't jitter. Each new snap gives a haptic tick and a label ("on wall", "90°", "aligned").
+- **Live dimensions:**
+  - wall lengths at a corner;
   - box W × D × H;
   - door width × height and its distance to the nearest corner;
   - the gap to the real surface when not snapped.
 
-## 4. While holding: the grab hand's own buttons act on what it holds
+## 4. While grabbing: the grab hand's own controls act on what it holds
 
 | Grab hand, while grabbing | Action |
 | --- | --- |
-| **Trigger** | **Duplicate** the held box or opening; the copy stays in the hand (Gravity Sketch). For chairs, windows in a row. |
-| **Lower face button** (A or X) | **Delete** what is held (Gravity Sketch's red button while grabbing) |
-| **Thumbstick flick** | **Nudge** 1 cm along the current constraint, for fine placement without hand shake |
-| **Thumbstick hold** (push and keep) | **Precision:** movement scaled 1:4 while held, for steady far-ray edits |
-| **Both grips on one box** | Two-handed: hand distance resizes along the axis between the hands, twisting turns it about vertical; same constraints and snapping |
+| **Trigger** | **Duplicate** a box or opening, keeping the copy in the hand. On a floor corner: **split** (insert a corner beside it). On a ceiling corner: nothing. |
+| **Lower face button** (A or X) | **Delete** what is held. A floor corner merges its two walls; no fewer than 3 corners remain. |
+| **Thumbstick push** | **Nudge** 1 cm along the constraint in the pushed direction, repeating while held (v2 had both "flick = nudge" and "hold = precision" on the same stick) |
+| **Thumbstick click** | **Precision** on/off for this grab: movement scaled 1:4, for steady far edits |
 
-## 5. Not holding anything: add with the trigger (half-pull preview, full pull commit)
+## 5. Idle (nothing held)
 
-- **Tool:** the trigger adds at the controller tip or ray, with the hand's **tool**: corner, door, window, box, entrance.
-  - The thumbstick left/right changes the tool, shown as a small icon on the controller.
-  - It starts on **entrance** before recording and **box** during the second pass.
-- **Half-pull** shows a snapped ghost:
-  - a door fitted to the wall, standard 0.9 × 2.0 m;
-  - a box sitting on the floor under the ray, sized to the real object by its depth silhouette if it can be found;
-  - a corner inserted on the nearest floor edge.
-- **Full pull** commits it.
-- **Labels:** a new box gets a label from its size (table, bed, storage…). The thumbstick left/right while it is highlighted relabels it.
+| Input | Edit hand (default left) | Tool hand (default right) |
+| --- | --- | --- |
+| Grip | Grab (§1) | Grab (§1) |
+| Trigger, half / full | Add with the tool: half shows a snapped ghost, full places it | Same |
+| Thumbstick ← → | **Undo / redo**, one step per push; the HUD shows the step | **Tool:** corner, door, window, box, entrance (icon on the controller); remembered between sessions |
+| Thumbstick ↑ ↓ | Grab-sphere size (1–25 cm) | Highlighted box: change its label; else nothing |
+| Lower face button | X: show all handles / proximity only | A: **"detail here"** (while recording) |
+| Upper face button | Y: **open Space Setup** (not while recording) | B: show/hide the wrist miniature |
+| Menu ☰ (left only) | Start/stop recording | — |
+| Palm up (edit hand) | Palette: snapping kinds on/off, edit-hand swap, room name, **reset to Space Setup (with confirmation)** | — |
 
-## 6. The rest, few and fixed
+- **Ghosts on half-pull:**
+  - a door fitted to the wall, 0.9 × 2.0 m;
+  - a box sitting on the floor under the ray, sized to the real object from depth if possible;
+  - a corner on the nearest floor edge;
+  - entrance: the door under the ray highlights.
+- **New boxes** are labelled from their size; the tool-hand stick relabels the highlighted one.
 
-| Input | Action |
+## 6. The miniature
+
+- It lives **on the tool hand** (opposite the edit hand), level and room-aligned, so the edit hand is free to work in it. v2 put it on the left wrist while also wanting left-grip edits.
+- **Grab its base** with either grip and release it to **park** it in mid-air, world-locked, for editing far corners in miniature. Grab the base again to bring it back to the wrist.
+- Edits inside it use the same handles, constraints and snapping, scaled.
+
+## 7. One source of truth
+
+- **The edited room** feeds everything:
+  - the outlines;
+  - the miniature;
+  - the per-object coverage % on the HUD (memberships recomputed from the edited boxes, not from Space Setup's);
+  - `ROOM_MODEL`.
+
+  Only the coverage *grid* stays on the Space Setup global mesh, because it measures what was captured, not the layout.
+- **`ROOM_MODEL`** goes out on grab release and on undo/redo (debounced), with `"edited": true`, not continuously.
+- **Persistence:**
+  - Saved on the headset per Space Setup room UUID.
+  - Re-running Space Setup can change the UUID. The app then says so and offers to re-apply the previous edits, matched by position.
+  - Undo history is per session.
+
+## Data model
+
+| Element | Fields |
 | --- | --- |
-| Left **menu ☰** | Start/stop recording (X no longer does) |
-| **Upper face button** (B or Y), tap | **Undo** (Gravity Sketch's red button with nothing held) |
-| Modifier-hand thumbstick, back/forward (not grabbing) | Scrub history: undo/redo several steps, with a ghost preview |
-| **Y** hold 1 s | Open Space Setup. Hold 3 s: reset the room to Space Setup and discard edits. |
-| **X** | Show all handles / proximity only |
-| **A** (during recording, not grabbing) | "Detail here": 2 s of every frame, kept |
-| Wrist **palm up** (left) | Small palette: snapping on/off per kind, grab-sphere size, handedness swap, room name |
+| Floor polygon | corners on the floor plane |
+| Ceiling | height (per wall later) |
+| Openings | wall edge index, offset, sill, width, height, kind (door/window), entrance flag |
+| Boxes | label, centre, yaw, size |
 
-There is no edit mode switch: editing is always one grip away, scanning continues meanwhile, and nothing appears
-in front of the eyes unless a hand is near it.
-
-## Data and persistence
-
-- **The editable room:**
-  - **floor polygon:** corners on the floor plane;
-  - **ceiling height**, per wall later;
-  - **openings:** on a wall edge, with offset, sill, width and height;
-  - **boxes:** label, centre, yaw, size.
-- Initialised from Space Setup. Saved on the headset per Space Setup room UUID, with undo history per session.
-- Sent as `ROOM_MODEL` with `"edited": true`. The laptop export, spawn and floor logic need no changes.
+Initialised from Space Setup.
 
 ## Build order
 
-1. Editable room model, persistence, `ROOM_MODEL` from it.
-2. Grab sphere + ray, handles with proximity reveal, natural constraints, grip drag, undo/redo, haptics. *(This answers the immediate request.)*
-3. Modifier trigger: axis lock (half) / free (full), room axes, guide visuals.
-4. Snapping: reality, alignment inference, angles, increments, live dimensions.
-5. While-holding actions: duplicate, delete, nudge, precision; two-handed box.
-6. Trigger tools: add corner, door, window, box, entrance, with half-pull ghosts; labels.
-7. Mini model as an editing surface; wrist palette.
+1. Editable room model, single source of truth (§7), persistence, `ROOM_MODEL` from it.
+2. Grab sphere (handle jumps to the tip) + ray with ray-plane drag, hover labels, handle visibility, natural constraints, undo/redo (edit-hand stick), haptics. *(Answers "move vertices with the left grip".)*
+3. Modifier trigger with hysteresis and detents: axis lock (element frame) and unsnapped; guide visuals.
+4. Snapping: reality, inference, angles, increments, sticky snaps, live dimensions.
+5. While grabbing: duplicate/split, delete/merge, nudge, precision; two-handed box.
+6. Tools and ghosts: corner, door, window, box, entrance; labels.
+7. Miniature on the tool hand, park/unpark, editing in it; palette with reset confirmation.
+
+## Review of v2 (2026-11-07)
+
+**Contradictions fixed:**
+
+| # | v2 | Problem | v3 |
+| --- | --- | --- | --- |
+| 1 | Idle actions bound to the "grab hand" or "modifier hand" | Those roles only exist while grabbing, so idle bindings were undefined | Fixed edit hand / tool hand for idle (§5) |
+| 2 | Grab-hand stick: flick = nudge, hold = precision, click-hold = bypass snapping; idle up/down = sphere size *and* history scrub | One stick, several meanings in the same state | While grabbing: push = nudge, click = precision. Idle: edit-hand stick = undo/redo and sphere size, tool-hand stick = tool and label. Bypass moved to the full modifier pull. |
+| 3 | Full pull = free 6-DoF, "a corner may leave the floor, a box may tilt" | The data model cannot store either | Full pull = unsnapped within the natural constraint; slopes come with per-wall heights |
+| 4 | Handles shown only within 1.5 m of the hands, yet the ray grabs ceiling corners | You can't aim at handles you can't see | Handles also show near the ray's target |
+| 5 | Miniature on the left wrist; edits preferably with the left grip; editing inside the miniature | The hand holding it would be the one editing | Miniature on the tool hand, and it can be parked in mid-air |
+| 6 | Undo on B/Y tap *and* on the stick; Y tap = undo, Y hold = Space Setup, Y 3 s = reset | Redundant (the user's complaint); tap and hold on one button delays undo; a destructive action on a timer | Undo only on the edit-hand stick; Y = Space Setup; reset in the palette with confirmation |
+| 7 | HUD per-object % and the miniature computed from Space Setup anchors | They would disagree with the edited room | Everything reads the edited room (§7) |
+| 8 | Default tool "box during the second pass" | The app has no notion of a second pass | The tool is remembered |
+| 9 | Duplicate and delete for "what is held" | Undefined for corners | Per element: split/merge corners, nothing for ceiling corners, at least 3 corners |
+| 10 | Two-handed grab | Modifier hand missing; second grip on another element undefined | Stated: snapping stays on, no modifier, other elements ignored in v1 |
+
+**Improvements added:**
+
+- the handle jumps to the grab sphere;
+- ray-plane drag for far edits;
+- hover label before grabbing;
+- axis lock in the element's own frame;
+- trigger hysteresis plus haptic detents;
+- sticky snaps;
+- `ROOM_MODEL` only on release;
+- the Space Setup UUID-change case.
 
 ## Open questions for the user
 
-1. Is "the other hand's trigger is the constraint modifier" right? The alternative is a modifier on the grabbing hand itself, e.g. a thumbstick press.
-2. Should natural constraints be the default, with free movement on full pull? Or should free be the default, with constraints on demand?
-3. Handles only near the hands (proximity reveal, X to show all), or always visible while not recording?
+1. Edit hand: **left** (default, from your request) or right?
+2. Should new elements be added with the trigger of **either** hand, or only the tool hand?
 
 ## Sources
 
