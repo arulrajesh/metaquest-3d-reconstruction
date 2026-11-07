@@ -68,7 +68,10 @@ Derived faces are never edited directly. They follow the regions. One model ther
 
 ## Hands
 
-- **Edit hand** is a setting, by default the **left** (the user's request). The other hand is the **tool hand**. Either grip can grab.
+- **Edit hand:** by default the **left**. The other hand is the **tool hand**. **Swappable in settings** (palm-up palette, saved on the headset). User decision, 2026-11-07: "one hand is edit hand and the other is whatever, but should be swappable in settings."
+  - **Edit hand:** grabs and edits, undo/redo, grab-sphere size, constraint modifier.
+  - **Tool hand:** everything else: tools, the radial menu, "detail here", the miniature.
+  - Either grip can grab.
 - **While grabbing,** the grabbing hand is the *grab hand* and the other is the *modifier hand*.
 
 ## 1. Grabbing
@@ -141,7 +144,7 @@ Priority:
 | Input | Edit hand (default left) | Tool hand (default right) |
 | --- | --- | --- |
 | Grip | Grab (§1) | Grab (§1) |
-| Trigger | Use the tool (below) | Use the tool (below) |
+| Trigger | Nothing idle (it is the constraint modifier while the tool hand grabs) | **Use the tool** (below) |
 | Thumbstick | ← → undo / redo; ↑ ↓ grab-sphere size | **Radial menu:** push toward an icon, release to choose a tool. While hovering a box or region it shows that element's **labels or kind** instead (table, bed, storage… / room, solid). |
 | Lower face button | X: show all handles / proximity only | A: **"detail here"** (while recording) |
 | Upper face button | Y: **open Space Setup** (not while recording) | B: show/hide the wrist miniature |
@@ -251,9 +254,8 @@ v3 fixed these. The v2 → v3 changes still hold in v4.
 
 ## Open questions for the user
 
-1. Edit hand: **left** (default, from your request) or right?
-2. Do tools work with either hand's trigger (as written), or only the tool hand?
-3. Anything else structural to cover: stairs (a run of steps from the rectangle and edge tools, or a dedicated stair tool), a mezzanine, double-height spaces?
+1. ~~Edit hand~~ Decided 2026-11-07: edit hand (default left) plus tool hand, swappable in settings; tools only on the tool hand.
+2. Anything else structural to cover: stairs (a run of steps from the rectangle and edge tools, or a dedicated stair tool), a mezzanine, double-height spaces?
 
 ## Sources
 
