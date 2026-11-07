@@ -84,7 +84,10 @@ Last updated: 2026-11-07
     - All three refined variants learn the same thing: **both cameras pitched ~+0.16–0.19°** against MRUK's `lensOffset`, and the right camera's principal point **+1.6–1.8 px** in x.
     - There is no real radial scale (−0.04% relative). The +0.4% seen in the flow residual was not a focal error.
     - `location.json` stats now include `splat_camera_calibration`.
-    - **Running:** an end-to-end `build-location` with the new default, as `recapture-2026-11-07-calibrated`.
+    - **End-to-end build with the new default works:** `recapture-2026-11-07-calibrated`, in the gallery.
+      - 739k splats, 13 min of training.
+      - Half-res holdout 31.97 dB, against 31.47 for the earlier `recapture-2026-11-07`.
+      - Calibration matches the A/B (pitch +0.15/+0.16°).
   - **Takeaway so far:** software fixes on existing data give about +0.6 dB. The remaining 3 px disagreement is mostly blur and pose noise in the frames themselves, so the next big lever is the new capture (denser, slower, closer), not more training tricks.
 
 - **The first streamed recapture is done (2026-11-06, 17:55): `~/MQ3DRecon/sessions/20261106_175535_2`.** The streaming app, live fusion and headset feedback all ran end to end.
