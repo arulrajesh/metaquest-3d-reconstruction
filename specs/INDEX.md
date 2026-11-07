@@ -213,7 +213,7 @@ Related tests: `tests/test_web_location.py`.
 
 ## `CAPTURE_CONTROLS.md`
 
-Design (awaiting review): in-app room editing for the headset capture app: grip grabs (grab sphere + ray), natural constraints by default, the other hand's trigger for axis lock or free movement, reality-first snapping, while-holding actions, undo; the editable room model sent as `ROOM_MODEL`.
+Design (awaiting review): in-app room editing for the headset capture app. Region-based room model (per-region floor and ceiling planes: steps, false ceilings, beams, pillars, slopes), grip grabs with natural constraints, the other hand's trigger for axis lock or unsnapped, reality-first snapping, tools (rectangle, edge, vertex, door, window, box, entrance), `ROOM_MODEL` schema v2.
 
 Read when changing:
 
