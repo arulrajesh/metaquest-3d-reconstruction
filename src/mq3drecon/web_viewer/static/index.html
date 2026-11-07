@@ -23,13 +23,19 @@
         grid.innerHTML = '<p class="empty">No locations yet. Capture with the headset; each session is built here automatically.</p>';
       }
       for (const loc of locations) {
-        const card = document.createElement('a');
+        const card = document.createElement('div');
         card.className = 'card';
-        card.href = `viewer.html?loc=${encodeURIComponent(loc.id)}`;
         const when = new Date(loc.created_utc).toLocaleString();
+        const room = loc.room_model || {};
+        const downloads = Object.keys(room).length
+          ? `<p class="downloads">Room model (SketchUp): ${['dae', 'obj', 'glb'].filter((k) => room[k])
+              .map((k) => `<a href="/locations/${room[k]}" download>.${k}</a>`).join(' · ')}</p>`
+          : '';
         card.innerHTML = `
-          <div class="thumb">${loc.thumbnail ? `<img src="/locations/${loc.thumbnail}" alt="">` : ''}</div>
-          <div class="meta"><h2></h2><p>${loc.kind} · ${when}</p><p>${(loc.triangles / 1000).toFixed(0)}k triangles</p></div>`;
+          <a class="open" href="viewer.html?loc=${encodeURIComponent(loc.id)}">
+            <div class="thumb">${loc.thumbnail ? `<img src="/locations/${loc.thumbnail}" alt="">` : ''}</div>
+            <div class="meta"><h2></h2><p>${loc.kind} · ${when}</p><p>${(loc.triangles / 1000).toFixed(0)}k triangles</p></div>
+          </a>${downloads}`;
         card.querySelector('h2').textContent = loc.name;
         grid.appendChild(card);
       }

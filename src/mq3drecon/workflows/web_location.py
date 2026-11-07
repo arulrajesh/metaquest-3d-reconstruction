@@ -222,6 +222,8 @@ def update_index(locations_dir: Path) -> list[dict]:
             "id": data["id"], "name": data["name"], "kind": data["kind"], "created_utc": data["created_utc"],
             "thumbnail": f"{data['id']}/{data['assets']['thumbnail']}" if data["assets"].get("thumbnail") else None,
             "triangles": data["stats"]["visual_triangles"],
+            "room_model": {kind: f"{data['id']}/{data['assets'][key]}" for kind, key in
+                           (("dae", "room_model_dae"), ("obj", "room_model_obj"), ("glb", "room_model")) if data["assets"].get(key)},
         })
     entries.sort(key=lambda e: e["created_utc"], reverse=True)
     (Path(locations_dir) / "index.json").write_text(json.dumps({"locations": entries}, indent=2), encoding="utf-8")
