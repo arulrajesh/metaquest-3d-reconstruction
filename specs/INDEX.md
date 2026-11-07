@@ -211,6 +211,17 @@ Read when changing:
 
 Related tests: `tests/test_web_location.py`.
 
+## `CAPTURE_CONTROLS.md`
+
+Plan (awaiting review): headset controller map and in-app room editing (drag corners and boxes, add doors/windows/furniture, entrance, undo), the editable room model sent as `ROOM_MODEL`.
+
+Read when changing:
+
+* the capture app's controller bindings, room guide, mini model, or wrist HUD (`QuestRealityCapture` fork)
+* the `room_model.json` schema (`mq3drecon.processing.web_location.room_model`)
+
+Related tests: `tests/test_room_model.py`.
+
 ## `LOGGING_AND_ERRORS.md`
 
 Navigation for library error reporting, typed project exceptions, logging, and CLI error conversion.
