@@ -55,7 +55,24 @@ Last updated: 2026-11-07
     - **Build quirk:** the first Gradle `:launcher:packageRelease` failed with `IncrementalSplitterRunnable` and no cause given; a plain re-run passed (probably a transient file lock).
       - Re-run command: Unity's `java -classpath ...gradle-launcher-9.1.0.jar org.gradle.launcher.GradleMain :launcher:packageRelease` in `Library/Bee/Android/Prj/IL2CPP/Gradle`.
       - Then copy `launcher/build/outputs/apk/release/launcher-release.apk` to `Builds/`.
-  - **Running:** `uvdebug/eye_fix.py` trains four variants (15k iterations each) and scores the same held-out views at native resolution: headset poses, per-eye rotation fix, fix with fast frames dropped, and fix with the same number dropped at random. Log: `uvdebug/eye_fix.log`.
+  - **Per-eye rotation fix and frame dropping** (`uvdebug/eye_fix.py`, log `eye_fix.log`). Settings: 15k iterations, half res, the same 70 held-out views at native res.
+
+    | Variant | Train views | Held-out PSNR | Fine detail |
+    | --- | --- | --- | --- |
+    | headset poses | 495 | 31.17 dB | 23% |
+    | per-eye rotation from the mean flow | 495 | 31.47 dB | 26% |
+    | fix + drop frames above 25°/s | 317 | 30.66 dB | 29% |
+    | fix + drop the same number at random | 317 | 31.03 dB | 29% |
+
+    - The fix cuts the left/right x disagreement from 3.4 to 0.9 px, but gains only +0.3 dB.
+    - **Dropping fast frames after capture hurts**, being worse than random. They are better kept for coverage, and blur is better avoided at capture time.
+    - Fewer views give sharper but less accurate models: views disagree, and averaging them blurs.
+    - **Residual structure across all frames:** both cameras show a radial scale (+0.35/+0.55% left, +0.12/+0.37% right), which is 3–4 px at the edges. The right camera's photos are softer (sharpness 149 vs 179).
+  - **Per-camera calibration refinement added** (`SplatSettings.camera_opt`, `7d09a16`, off by default).
+    - Shared per camera (`BakeView.camera`): rig rotation plus focal x/y and principal point. The intrinsics are applied as a differentiable zoom/shift of the render, because gsplat has no `Ks` gradient.
+    - Rig translation is off by default: on the synthetic test it drifted 9 mm with a matching +1% zoom (dolly vs zoom).
+    - Test: a 2% focal error on one camera is recovered relative to the other (−2.06/−1.99%). A zoom shared by both cameras is barely observable and drifts; `camera_intrinsics_reference` pins one camera.
+  - **Running:** `uvdebug/calib_fair.py` (log `calib_fair.log`) compares base, cam, cam_ref and cam_trans on held-out views at native res.
 
 - **The first streamed recapture is done (2026-11-06, 17:55): `~/MQ3DRecon/sessions/20261106_175535_2`.** The streaming app, live fusion and headset feedback all ran end to end.
   - **Stream:** direct Wi-Fi TCP (endpoint file) at about 5 color and 7.5 depth fps, with 0 headset drops. Fusion takes 20–50 ms per keyframe.
