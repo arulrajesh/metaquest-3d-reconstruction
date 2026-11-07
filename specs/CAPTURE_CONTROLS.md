@@ -1,120 +1,159 @@
-# Capture controls and in-app room editing (plan)
+# Capture controls and in-app room editing (design)
 
-Status: **plan, 2026-11-07, awaiting the user's review.** Not implemented. It turns `FUTURE.md` §1, §4 and §5 into a
-concrete design for the headset capture app (`QuestRealityCapture` fork).
+Status: **design v2, 2026-11-07, awaiting the user's review.** Not implemented. It replaces v1, which was a
+button-per-feature table; the user asked for real thought on the *editing experience* instead.
 
-## Why
+This document is the spec for the editing UI in the headset capture app (`QuestRealityCapture` fork). It follows
+`FUTURE.md` §1, §4 and §5.
+
+## The problem
 
 User feedback, 2026-11-07:
 
 - "I can't actually move the objects with the grip trigger."
-- "I want to be able to move the individual vertices while holding the left grip trigger."
-- "There are so many buttons and almost everything is unused. I can have so much more control in the first scan itself."
+- "I want to move the individual vertices while holding the left grip."
+- "There are so many buttons and almost everything is unused."
+- "Put some effort into thinking how we can better the editing experience… constrained movement vs free movement, while holding a specific button or trigger."
 
-Today Space Setup (Y) is the only way to fix the room, and it can't drag corners from inside our app. The room model
-(walls, doors, windows, furniture) drives three things:
+The task differs from Gravity Sketch's. Here the user isn't sculpting new shapes. They are **making a model agree
+with the room they can already see** through passthrough. So the best constraint is reality itself, and the most
+precise tool is the user's own hand, touching the real corner. Every design choice below follows from that.
 
-- the SketchUp-style export;
-- the entrance spawn;
-- the per-object coverage HUD.
+## What Gravity Sketch does (sources: help centre, see the end)
 
-So correcting it during the first pass pays off everywhere.
+Gravity Sketch's patterns, and where each one lands in this design:
 
-## Bindings today
+| Gravity Sketch pattern | Here |
+| --- | --- |
+| **Grab (grip) does everything to an object:** move, rotate, scale. | Grip is the only edit gesture. |
+| **The other hand's trigger is the constraint modifier.** A half-pull snaps to an axis or plane. In edit mode, holding it while grabbing a point *slides* the point along its neighbours instead of moving it freely. | The *other* hand's trigger is the constraint modifier (§2). |
+| **The grabbing hand's own buttons act on what it holds.** The trigger duplicates it; the red button deletes it. With nothing held, the red button is undo. | Same, while grabbing (§4). |
+| **Half-pull previews, full pull commits** (adding points). | Same, when placing (§5). |
+| **Off-hand thumbstick scrubs history.** | Same (§6). |
+| **The grab sphere grows with the thumbstick, so one grab catches several points.** | Grab sphere radius on the thumbstick; several handles are grabbed at once, e.g. both ends of a wall (§1). |
+| **"Restrict face movement" to chosen directions**, and grid snapping. | Each element type has its own default degrees of freedom; snapping uses room axes (§2–3). |
+
+## 1. One gesture: grip grabs
+
+- **Each hand grabs with its own grip.** Left or right does not matter; whichever hand is grabbing is the *grab hand*, and the other is the *modifier hand*. This keeps the user's request (left grip) without forcing handedness.
+- **Near:** a **grab sphere** sits at the controller tip, radius 3 cm by default. The grab hand's thumbstick up/down changes it, from 1 to 25 cm, while not grabbing. Everything inside is grabbed together. This is the precise way: touch the real corner and grab.
+- **Far:** with nothing in the sphere, a short **ray** (up to 5 m) picks the handle nearest to it. Use it for ceiling corners and far walls.
+- **What gets grabbed:** handles appear only within about 1.5 m of a controller tip. The scanning view stays clean (user feedback: overlays in front of the eyes while scanning are unpleasant). X shows all handles.
+
+  | Handle | Grabbing it… |
+  | --- | --- |
+  | ● floor corner | moves that corner; the two walls meeting there follow |
+  | ● ceiling corner | sets the ceiling height (all walls) |
+  | ▬ wall midpoint (bar) | moves the whole wall, staying parallel; both corners follow |
+  | ● opening corner | resizes the door or window on its wall |
+  | ▬ opening body | slides the door or window along its wall |
+  | ● box corner | resizes the box from the opposite corner |
+  | ■ box face (centre) | push/pull that face (SketchUp-style), only along its normal |
+  | ◆ box top (centre) | moves the box on whatever it rests on, and turns it about vertical |
+  | the mini model (on the left wrist) | the same handles, in miniature: ceiling corners and far walls without walking or stretching |
+
+## 2. Constrained by default, free on demand (modifier hand trigger)
+
+Rooms are architectural, so **the default movement is already constrained to what makes sense for that element**.
+The modifier hand's trigger changes the constraint while held:
+
+| Modifier hand trigger | Constraint | Typical use |
+| --- | --- | --- |
+| released (default) | **Natural:** floor corners move on the floor plane; walls move along their normal; boxes slide on their support surface and turn about vertical; openings stay on their wall; box faces move along their normal | Almost everything |
+| **half-pull** (held) | **Axis lock:** after 2 cm of motion the movement locks to the dominant **room axis** (along or across the room's main walls, or vertical). A coloured guide line shows it. Release the trigger to unlock. | Squaring a corner, lining up a wall, raising something straight up |
+| **full pull** (held) | **Free:** full 6-DoF, ignoring the natural plane. A floor corner may leave the floor; a box may tilt. | The rare odd case: sloped ceiling edges, a leaning shelf |
+
+- **Room axes, not world axes.** Axis lock and angle snapping use the room's own frame, aligned to its longest wall, so "straight" means parallel to the walls. Headset world axes are arbitrary.
+- **Visual cue:**
+  - natural constraint: a faint patch of the active plane around the handle;
+  - axis lock: a long coloured line (room-X red, room-Z blue, vertical green);
+  - free: no guide.
+
+## 3. Snapping: reality first
+
+Snapping is on while grabbing. Candidates are listed in priority order, each with a small label and a **haptic tick** when
+it engages:
+
+1. **Reality.** The grabbed point snaps to the real surface under it: the Quest depth or the Space Setup global mesh, ray-cast along the constrained direction.
+   - Corners snap to where two real wall surfaces meet (intersection of nearby depth planes).
+   - Box faces snap flush to the real object's surface.
+2. **Alignment with other elements** (SketchUp-style inference): a dashed line appears when the point lines up with another corner along a room axis, sits on an edge's extension, or makes a wall parallel or perpendicular to another.
+3. **Angles:** 90° and 45° between walls, and box yaw to the room axes.
+4. **Increments:** lengths and offsets to 1 cm, or 5 cm with a wider grab sphere.
+
+- **Bypass:** the grab hand's thumbstick click, held, ignores all snapping for that drag.
+- **Live dimensions** while dragging:
+  - lengths of both walls at a corner;
+  - box W × D × H;
+  - door width × height and its distance to the nearest corner;
+  - the gap to the real surface when not snapped.
+
+## 4. While holding: the grab hand's own buttons act on what it holds
+
+| Grab hand, while grabbing | Action |
+| --- | --- |
+| **Trigger** | **Duplicate** the held box or opening; the copy stays in the hand (Gravity Sketch). For chairs, windows in a row. |
+| **Lower face button** (A or X) | **Delete** what is held (Gravity Sketch's red button while grabbing) |
+| **Thumbstick flick** | **Nudge** 1 cm along the current constraint, for fine placement without hand shake |
+| **Thumbstick hold** (push and keep) | **Precision:** movement scaled 1:4 while held, for steady far-ray edits |
+| **Both grips on one box** | Two-handed: hand distance resizes along the axis between the hands, twisting turns it about vertical; same constraints and snapping |
+
+## 5. Not holding anything: add with the trigger (half-pull preview, full pull commit)
+
+- **Tool:** the trigger adds at the controller tip or ray, with the hand's **tool**: corner, door, window, box, entrance.
+  - The thumbstick left/right changes the tool, shown as a small icon on the controller.
+  - It starts on **entrance** before recording and **box** during the second pass.
+- **Half-pull** shows a snapped ghost:
+  - a door fitted to the wall, standard 0.9 × 2.0 m;
+  - a box sitting on the floor under the ray, sized to the real object by its depth silhouette if it can be found;
+  - a corner inserted on the nearest floor edge.
+- **Full pull** commits it.
+- **Labels:** a new box gets a label from its size (table, bed, storage…). The thumbstick left/right while it is highlighted relabels it.
+
+## 6. The rest, few and fixed
 
 | Input | Action |
 | --- | --- |
-| Left menu ☰, also **X** | Start/stop recording (the scene binds `Start` and `Three` with `Controller.All`) |
-| **Y** | Open Space Setup, not while recording |
-| Right **trigger** | Point at a door to set it as the entrance |
-| **A** | "Detail here": 2 s of every frame, all kept |
-| **B** | Show or hide the mini model |
-| Both **grips**, both **thumbsticks**, left **trigger**, wrist roll | Unused |
+| Left **menu ☰** | Start/stop recording (X no longer does) |
+| **Upper face button** (B or Y), tap | **Undo** (Gravity Sketch's red button with nothing held) |
+| Modifier-hand thumbstick, back/forward (not grabbing) | Scrub history: undo/redo several steps, with a ghost preview |
+| **Y** hold 1 s | Open Space Setup. Hold 3 s: reset the room to Space Setup and discard edits. |
+| **X** | Show all handles / proximity only |
+| **A** (during recording, not grabbing) | "Detail here": 2 s of every frame, kept |
+| Wrist **palm up** (left) | Small palette: snapping on/off per kind, grab-sphere size, handedness swap, room name |
 
-## The editable room
+There is no edit mode switch: editing is always one grip away, scanning continues meanwhile, and nothing appears
+in front of the eyes unless a hand is near it.
 
-- Space Setup is the starting point. MRUK anchors are read-only, so the app keeps its own **editable room**, made of:
+## Data and persistence
+
+- **The editable room:**
   - **floor polygon:** corners on the floor plane;
-  - **ceiling height**, plus optional per-wall heights later;
-  - **walls:** derived from the floor polygon (one wall per edge), so moving a corner moves both walls that meet there, as in RoomPlan and SketchUp;
-  - **openings:** door and window rectangles on a wall (offset along the wall, sill, width, height);
-  - **boxes:** furniture with a label, centre, yaw, and size.
-- **Persistence:** edits are saved on the headset per Space Setup room UUID, so the next session starts from them. "Reset to Space Setup" discards them.
-- **Data flow:** the edited room is what `ROOM_MODEL` sends, with `"edited": true`. The laptop's export, spawn and floor logic need no other changes.
-- **The coverage grid** stays on the Space Setup global mesh. It measures capture, not layout.
-
-## Handles and feedback
-
-- **Handles** are small spheres:
-  - every floor corner and its ceiling twin;
-  - every opening corner;
-  - every box corner, plus the box's top-centre for moving it.
-- **Pointing:** each hand has a short ray, about 4 m, that stops at the first surface (global mesh or depth). The handle nearest the ray, within about 8° or 15 cm, **highlights**.
-  - Within reach, about 25 cm, the nearest handle to the controller tip wins, so close work is direct.
-- **Dimensions** are shown SketchUp-style while dragging:
-  - wall lengths along the floor edges;
-  - box width × depth × height.
-- **Snapping**, on by default; holding the other hand's trigger halfway turns it off:
-  - floor corners stay on the floor plane;
-  - a corner snaps to the real surface where its ray meets depth or the global mesh, to straight angles (90°/180°) with its neighbours, and to 1 cm;
-  - a box sits on the floor or on the box under it;
-  - an opening stays inside its wall.
-
-## Controller map (both hands can grab; each hand keeps a role)
-
-Following `FUTURE.md` §4: the **left hand** is the edit and menu hand, the **right hand** the pointing and tool hand. **Grip
-is grab on both hands.** The left grip is the primary grab, as requested; the right grip also grabs, which helps for
-two-handed resizing.
-
-| Input | Room pass (not recording) | Scanning (recording) |
-| --- | --- | --- |
-| **Left grip** (hold) | Grab the highlighted handle and drag it: corner, opening corner, box corner, or box move | Same; edits never stop the recording |
-| **Right grip** (hold) | Same as the left grip | Same |
-| **Both grips** on one box | Two-handed: move, rotate (yaw) and scale the box | Same |
-| **Both grips** on empty space | Grab the mini model: move, rotate, scale it, and grab handles in the miniature for far corners such as the ceiling | Same |
-| Left **trigger** half-pull | Snapping off while held | Same |
-| Left **thumbstick** left/right | Undo / redo | Same |
-| Left **thumbstick** click | Show or hide the mini model (moved from B) | Same |
-| **X** | Toggle the edit handles, to hide clutter (X is removed from the record toggle) | Same |
-| **Y** | Re-run Space Setup (long press: reset edits to Space Setup) | Disabled |
-| Left **menu ☰** | Start/stop recording | Same |
-| Right **trigger** | Click a door: entrance. Click a wall: select it. Click a box: select it. | Same |
-| **A** | **Add** at the ray: on a wall, a door (thumbstick to switch to window); on the floor, a box; on a floor edge, a new corner. | "Detail here" (unchanged) |
-| **B** | **Delete** the highlighted handle's element: corner, opening or box | Undo the last detail marker |
-| Right **thumbstick** left/right | Cycle the selected box's label (table, couch, bed, storage, screen, lamp, plant, other) or opening type (door/window) | Same |
-| Right **thumbstick** up/down | Selected box: height. Selected wall: ceiling height. | Same |
-| Right **thumbstick** click | Cycle the capture phase cue: room pass ↔ detail pass | Same |
-| Wrist roll, palm up (left) | Session palette: room name, reset edits, save | Same |
-
-The wrist HUD (left hand) shows the current mode and what the buttons do in it, as a two-line legend, so nothing needs memorising.
-
-## Phases
-
-1. **Room pass** (before recording):
-   - Space Setup loads.
-   - Walk the room and drag any wrong corners and boxes into place.
-   - Add missing doors, windows and boxes, and pick the entrance.
-2. **Scanning** (recording):
-   - The coverage grid fades as surfaces are captured.
-   - Editing stays possible.
-   - A = detail.
-3. **Wrap-up** (after stopping):
-   - Wrist summary: duration, coverage %, edits, size.
-   - The edited room is sent with the session and saved on the headset.
+  - **ceiling height**, per wall later;
+  - **openings:** on a wall edge, with offset, sill, width and height;
+  - **boxes:** label, centre, yaw, size.
+- Initialised from Space Setup. Saved on the headset per Space Setup room UUID, with undo history per session.
+- Sent as `ROOM_MODEL` with `"edited": true`. The laptop export, spawn and floor logic need no changes.
 
 ## Build order
 
-1. **Editable room model:** data model, initialised from MRUK; persistence per room UUID; `ROOM_MODEL` sends it (`"edited": true`). The laptop needs no changes.
-2. **Handles and grab:** rays, hover, either grip drags corners and boxes with plane constraints; undo/redo; X toggle; move the mini model toggle; free X from recording.
-3. **Snapping and dimensions:** surface, angle and 1 cm snapping; wall length and box size labels.
-4. **Add, delete and label:** A, B, right thumbstick; openings on walls; corner insertion on edges.
-5. **Two-handed:** box rotate and scale; grab, rotate and scale the mini model; edit through the miniature.
-6. **Wrist palette and wrap-up summary.**
-
-Steps 1–2 alone answer the immediate request: drag the room's vertices with the left grip.
+1. Editable room model, persistence, `ROOM_MODEL` from it.
+2. Grab sphere + ray, handles with proximity reveal, natural constraints, grip drag, undo/redo, haptics. *(This answers the immediate request.)*
+3. Modifier trigger: axis lock (half) / free (full), room axes, guide visuals.
+4. Snapping: reality, alignment inference, angles, increments, live dimensions.
+5. While-holding actions: duplicate, delete, nudge, precision; two-handed box.
+6. Trigger tools: add corner, door, window, box, entrance, with half-pull ghosts; labels.
+7. Mini model as an editing surface; wrist palette.
 
 ## Open questions for the user
 
-1. Grab with **both** grips (recommended), or the left grip only?
-2. Can the room be edited **while recording** (recommended: yes)?
-3. Walls as a single floor polygon with one ceiling height (recommended, SketchUp-like), or per-wall heights now (sloped or split ceilings)?
+1. Is "the other hand's trigger is the constraint modifier" right? The alternative is a modifier on the grabbing hand itself, e.g. a thumbstick press.
+2. Should natural constraints be the default, with free movement on full pull? Or should free be the default, with constraints on demand?
+3. Handles only near the hands (proximity reveal, X to show all), or always visible while not recording?
+
+## Sources
+
+- Gravity Sketch controllers layout: https://help.gravitysketch.com/hc/en-us/articles/9380640515485-controllers-layout
+- Gravity Sketch edit objects: https://help.gravitysketch.com/hc/en-us/articles/5902620122269-Edit-Objects
+- Gravity Sketch editing properties: https://help.gravitysketch.com/hc/en-us/articles/5902621323293-Editing-Properties
+- Gravity Sketch grid: https://help.gravitysketch.com/hc/en-us/articles/5912795706397-Grid
