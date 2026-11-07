@@ -72,3 +72,21 @@ def test_compaction_keeps_extra_color_views_for_splats(tmp_path):
     assert with_grid.frames_after["color_left"] > tsdf_only.frames_after["color_left"]
     assert with_grid.frames_after["color_left"] <= with_grid.frames_before["color_left"]
     assert with_grid.frames_after["color_left"] == with_grid.frames_after["color_right"]
+
+
+def test_compaction_keeps_every_frame_in_a_detail_window_and_the_room_model(tmp_path):
+    pytest.importorskip("warp")
+    import pandas as pd
+
+    from mq3drecon.synthetic import SyntheticCaptureSpec, write_synthetic_capture
+    from mq3drecon.workflows.compaction import compact_session
+
+    source = write_synthetic_capture(tmp_path / "room", SyntheticCaptureSpec(frames=60, color_size=96, depth_size=64))
+    times = sorted(pd.read_csv(source / "left_camera_mruk_frame_metadata.csv").timestamp_us_realtime.astype(int))
+    window = (times[20], times[40])  # "detail here": 21 left frames
+    (source / "markers.json").write_text(json.dumps([{"kind": "detail", "start_us": window[0], "end_us": window[1]}]))
+    (source / "room_model.json").write_text(json.dumps({"version": 1, "anchors": []}))
+    compact_session(source, tmp_path / "compact", policy=KeyframePolicy(splat_color_gap_s=None))
+    kept = set(pd.read_csv(tmp_path / "compact" / "left_camera_mruk_frame_metadata.csv").timestamp_us_realtime.astype(int))
+    assert all(t in kept for t in times[20:41])
+    assert (tmp_path / "compact" / "room_model.json").exists() and (tmp_path / "compact" / "markers.json").exists()

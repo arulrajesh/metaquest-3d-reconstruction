@@ -14,7 +14,9 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from mq3drecon.models.side import Side
-from mq3drecon.streaming.messages import Bye, ColorFrame, DepthFrame, Heartbeat, Hello, Message, SessionEnd, SessionStart
+from mq3drecon.streaming.messages import (
+    Bye, ColorFrame, DepthFrame, Heartbeat, Hello, Marker, Message, RoomModelUpdate, SessionEnd, SessionStart,
+)
 from mq3drecon.streaming.session_recorder import RecordedSessionSummary, RecordingOptions, SessionRecorder
 
 logger = logging.getLogger(__name__)
@@ -87,6 +89,7 @@ class LiveSessionController:
         self._peer: str | None = None
         self._device: str | None = None
         self._dropped: dict[str, int] = {}
+        self._room: dict | None = None  # latest Space Setup room; the headset may send it before recording starts
         self.completed: list[CompletedSession] = []
 
     # LiveStreamHandler ---------------------------------------------------
@@ -113,6 +116,13 @@ class LiveSessionController:
                 self._dropped = dict(message.dropped)
             elif isinstance(message, SessionEnd):
                 self._finish(message.reason, message.dropped)
+            elif isinstance(message, RoomModelUpdate):
+                self._room = dict(message.room)
+                if self._recorder is not None:
+                    self._recorder.write_room_model(self._room)
+                logger.info("Room model: %d anchors", len(self._room.get("anchors", [])))
+            elif isinstance(message, Marker) and self._recorder is not None:
+                self._recorder.add_marker(message.kind, message.data)
             elif isinstance(message, Bye):
                 logger.info("Headset said goodbye: %s", message.reason)
 
@@ -136,6 +146,8 @@ class LiveSessionController:
             self._finish("superseded", None)
         project_dir = unique_session_dir(self.sessions_dir, message.session_name)
         self._recorder = SessionRecorder(project_dir, message, self._recording_options)
+        if self._room is not None:
+            self._recorder.write_room_model(self._room)
         self._session_name = message.session_name
         self._dropped = {}
         if self._reconstructor is not None:

@@ -49,6 +49,10 @@ class RecordingOptions:
     """Depth eyes to record. Live and build paths use the left eye; the right eye is redundant."""
 
 
+ROOM_MODEL_JSON = "room_model.json"
+MARKERS_JSON = "markers.json"
+
+
 class SessionRecorder:
     """Appends frames to an MRUK project directory. The directory must be new or empty."""
 
@@ -141,6 +145,20 @@ class SessionRecorder:
         ])
         handle.flush()
         self.summary.depth_frames[frame.side.name.lower()] = self.summary.depth_frames.get(frame.side.name.lower(), 0) + 1
+
+    def write_room_model(self, room: dict[str, Any]) -> None:
+        """Latest Space Setup room from the headset (replaced when the operator edits the room)."""
+        if not self._closed:
+            self._write_json(self.project_dir / ROOM_MODEL_JSON, room)
+
+    def add_marker(self, kind: str, data: dict[str, Any]) -> None:
+        """Operator markers, kept in ``markers.json`` (e.g. "detail" windows that compaction keeps in full)."""
+        if self._closed:
+            return
+        path = self.project_dir / MARKERS_JSON
+        markers = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
+        markers.append({"kind": kind, **data})
+        path.write_text(json.dumps(markers, indent=2), encoding="utf-8")
 
     def finalize(self, reason: str = "user_stop", headset_dropped: dict[str, int] | None = None) -> RecordedSessionSummary:
         if self._closed:

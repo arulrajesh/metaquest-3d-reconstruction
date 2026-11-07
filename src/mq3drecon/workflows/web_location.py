@@ -142,6 +142,40 @@ def _train_splats(seed_points, seed_colors, views, out: Path, enabled: bool, ite
     }
 
 
+def _room_model(project_dir: Path, out: Path, scan_floor_y: float) -> tuple[dict, dict]:
+    """Space Setup room from the headset (``room_model.json``), when the session has one: writes the
+    SketchUp-style model (glb/obj/dae) and returns (info, assets). ``info`` may carry ``floor_y`` (Space Setup's
+    floor, used only when it agrees with the scan's to 15 cm, which also checks both are in the same frame) and
+    ``spawn`` (just inside the chosen entrance door, facing in)."""
+    from mq3drecon.processing.web_location.mesh_export import Spawn
+    from mq3drecon.processing.web_location.room_model import (
+        entrance_spawn, export_room_model, load_room_model, space_setup_floor_y,
+    )
+
+    try:
+        model = load_room_model(project_dir)
+        if model is None:
+            return {}, {}
+        exported = export_room_model(model, out)
+        info: dict = {"elements": exported.get("elements", {}), "anchors": len(model.anchors)}
+        setup_floor = space_setup_floor_y(model)
+        floor_y = scan_floor_y
+        if setup_floor is not None:
+            info["floor_offset_m"] = round(setup_floor - scan_floor_y, 3)
+            if abs(setup_floor - scan_floor_y) <= 0.15:
+                info["floor_y"] = floor_y = setup_floor
+            else:
+                logger.warning("Space Setup floor %.2f m vs scan floor %.2f m: room model may not line up", setup_floor, scan_floor_y)
+        at_entrance = entrance_spawn(model, floor_y)
+        if at_entrance is not None:
+            info["spawn"] = Spawn(position=at_entrance[0], yaw_deg=at_entrance[1])
+            info["entrance"] = True
+        return info, exported.get("assets", {})
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        logger.warning("Room model skipped: %s", exc)
+        return {}, {}
+
+
 def run_serve_locations(
     *, workspace: Path | None = None, port: int = 8080, adb: bool = True, adb_path: Path | None = None, open_headset: bool = False,
 ) -> None:
@@ -240,6 +274,12 @@ def build_location(
     collider = decimate(mesh, collider_triangles)
     floor_y, floor_source = estimate_floor_y(decimate(mesh, visual_triangles), built.trajectory[:, 1])
     spawn = spawn_from_camera(built.first_view.camera_to_world, floor_y)
+    room_info, room_assets = _room_model(project_dir, out, floor_y)
+    if "floor_y" in room_info:
+        floor_y, floor_source = room_info.pop("floor_y"), "space_setup"
+        spawn = dc_replace(spawn, position=(spawn.position[0], floor_y, spawn.position[2]))
+    if "spawn" in room_info:
+        spawn = room_info.pop("spawn")
     texture_stats: dict = {"textured": False}
     views = []
     if textured:
@@ -298,7 +338,9 @@ def build_location(
         "floor_source": floor_source,
         "spawn": {"position": list(spawn.position), "yaw_deg": spawn.yaw_deg},
         "bounds": {"min": vertices.min(axis=0).tolist(), "max": vertices.max(axis=0).tolist()},
-        "assets": {"visual": "visual.glb", "collider": "collider.glb", "thumbnail": "thumbnail.jpg" if has_thumbnail else None, "splat": splat_file},
+        "assets": {"visual": "visual.glb", "collider": "collider.glb", "thumbnail": "thumbnail.jpg" if has_thumbnail else None, "splat": splat_file,
+                   **room_assets},
+        **({"room_model": room_info} if room_info else {}),
         "stats": {
             "visual_triangles": len(visual.triangles), "collider_triangles": len(collider.triangles),
             "voxel_size_m": built.voxel_size_m, "frames": built.frames, **texture_stats, **splat_stats,

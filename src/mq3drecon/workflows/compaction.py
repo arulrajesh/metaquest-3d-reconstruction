@@ -26,7 +26,19 @@ from mq3drecon.streaming.session_recorder import RecordingOptions, SessionRecord
 
 KEYFRAMES_CSV = "keyframes.csv"
 COMPACTION_JSON = "compaction.json"
-_COPIED_FILES = ("hmd_poses.csv", "left_controller_poses.csv", "right_controller_poses.csv")
+_COPIED_FILES = ("hmd_poses.csv", "left_controller_poses.csv", "right_controller_poses.csv", "room_model.json", "markers.json")
+
+
+def _detail_windows(project_dir: Path) -> list[tuple[int, int]]:
+    """(start_us, end_us) of the operator's "detail here" markers: every color frame inside is kept."""
+    path = Path(project_dir) / "markers.json"
+    if not path.exists():
+        return []
+    windows = []
+    for marker in json.loads(path.read_text(encoding="utf-8")):
+        if marker.get("kind") == "detail" and "start_us" in marker and "end_us" in marker:
+            windows.append((int(marker["start_us"]), int(marker["end_us"])))
+    return windows
 
 
 @dataclass
@@ -177,6 +189,8 @@ def compact_session(
     chosen_left = set(select_color_frames(
         targets_us, left_times, left_blur, policy, sharpness=_color_sharpness(project_dir, Side.LEFT)
     ))
+    for start_us, end_us in _detail_windows(project_dir):
+        chosen_left |= {t for t in left_times if start_us <= t <= end_us}
     right_meta = pd.read_csv(ProjectPathConfig(project_dir).image.get_mruk_frame_metadata_csv_path(Side.RIGHT))
     right_times = sorted(int(t) for t in right_meta.timestamp_us_realtime)
     chosen_right = {min(right_times, key=lambda r: abs(r - t)) for t in chosen_left} if right_times else set()

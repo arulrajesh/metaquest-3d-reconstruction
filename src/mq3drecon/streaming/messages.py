@@ -24,6 +24,8 @@ class MessageType(IntEnum):
     HEARTBEAT = 5
     SESSION_END = 6
     BYE = 7
+    ROOM_MODEL = 8  # Space Setup room (walls, doors, windows, furniture) and the chosen entrance
+    MARKER = 9  # operator markers, e.g. a "detail here" window whose color frames compaction keeps
     # Laptop -> headset feedback (mq3drecon.streaming.feedback)
     KEYFRAME = 20
     SURFACE_MESH = 21
@@ -127,7 +129,22 @@ class Bye:
     reason: str = "closing"
 
 
-Message = Union[Hello, SessionStart, ColorFrame, DepthFrame, Heartbeat, SessionEnd, Bye]
+@dataclass(frozen=True)
+class RoomModelUpdate:
+    """The room from Meta Space Setup, as ``room_model.json`` (see processing/web_location/room_model.py)."""
+
+    room: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class Marker:
+    """An operator marker. ``kind`` "detail": ``start_us``/``end_us`` (color timestamps) to keep in full."""
+
+    kind: str
+    data: dict[str, Any] = field(default_factory=dict)
+
+
+Message = Union[Hello, SessionStart, ColorFrame, DepthFrame, Heartbeat, SessionEnd, Bye, RoomModelUpdate, Marker]
 
 
 def _side_name(side: Side) -> str:
@@ -197,6 +214,10 @@ def encode_message(message: Message) -> bytes:
         return encode_frame(MessageType.SESSION_END, {"reason": message.reason, "dropped": message.dropped})
     if isinstance(message, Bye):
         return encode_frame(MessageType.BYE, {"reason": message.reason})
+    if isinstance(message, RoomModelUpdate):
+        return encode_frame(MessageType.ROOM_MODEL, dict(message.room))
+    if isinstance(message, Marker):
+        return encode_frame(MessageType.MARKER, {**message.data, "kind": message.kind})
     from mq3drecon.streaming.feedback import KeyframeNotice, LiveStatusUpdate, SurfaceMesh
 
     if isinstance(message, KeyframeNotice):
@@ -231,6 +252,11 @@ def decode_message(raw: RawMessage) -> Message:
             return SessionEnd(reason=str(h.get("reason", "user_stop")), dropped=_counts(h.get("dropped")))
         if message_type == MessageType.BYE:
             return Bye(reason=str(h.get("reason", "closing")))
+        if message_type == MessageType.ROOM_MODEL:
+            return RoomModelUpdate(room=dict(h))
+        if message_type == MessageType.MARKER:
+            data = dict(h)
+            return Marker(kind=str(data.pop("kind")), data=data)
         from mq3drecon.streaming.feedback import KeyframeNotice, LiveStatusUpdate, SurfaceMesh
 
         if message_type == MessageType.KEYFRAME:
