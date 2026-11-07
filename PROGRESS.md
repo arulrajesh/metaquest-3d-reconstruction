@@ -72,7 +72,20 @@ Last updated: 2026-11-07
     - Shared per camera (`BakeView.camera`): rig rotation plus focal x/y and principal point. The intrinsics are applied as a differentiable zoom/shift of the render, because gsplat has no `Ks` gradient.
     - Rig translation is off by default: on the synthetic test it drifted 9 mm with a matching +1% zoom (dolly vs zoom).
     - Test: a 2% focal error on one camera is recovered relative to the other (−2.06/−1.99%). A zoom shared by both cameras is barely observable and drifts; `camera_intrinsics_reference` pins one camera.
-  - **Running:** `uvdebug/calib_fair.py` (log `calib_fair.log`) compares base, cam, cam_ref and cam_trans on held-out views at native res.
+  - **Calibration refinement on the recapture** (`uvdebug/calib_fair.py`, log `calib_fair.log`; 70 held-out views at native res, 15k iterations):
+
+    | Variant | Held-out PSNR | Fine detail |
+    | --- | --- | --- |
+    | headset calibration | 31.14 dB | 21% |
+    | both cameras free | 31.70 dB | 24% |
+    | **left intrinsics pinned (now the default, `0800a01`)** | **31.72 dB** | 23% |
+    | plus rig translation | 31.57 dB | 23% |
+
+    - All three refined variants learn the same thing: **both cameras pitched ~+0.16–0.19°** against MRUK's `lensOffset`, and the right camera's principal point **+1.6–1.8 px** in x.
+    - There is no real radial scale (−0.04% relative). The +0.4% seen in the flow residual was not a focal error.
+    - `location.json` stats now include `splat_camera_calibration`.
+    - **Running:** an end-to-end `build-location` with the new default, as `recapture-2026-11-07-calibrated`.
+  - **Takeaway so far:** software fixes on existing data give about +0.6 dB. The remaining 3 px disagreement is mostly blur and pose noise in the frames themselves, so the next big lever is the new capture (denser, slower, closer), not more training tricks.
 
 - **The first streamed recapture is done (2026-11-06, 17:55): `~/MQ3DRecon/sessions/20261106_175535_2`.** The streaming app, live fusion and headset feedback all ran end to end.
   - **Stream:** direct Wi-Fi TCP (endpoint file) at about 5 color and 7.5 depth fps, with 0 headset drops. Fusion takes 20–50 ms per keyframe.
