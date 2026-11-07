@@ -127,6 +127,7 @@ def _train_splats(seed_points, seed_colors, views, out: Path, enabled: bool, ite
     return asset, {**extra,
         "splats": int(len(result.means)), "splat_iterations": iterations, "splat_seconds": round(result.seconds, 1),
         "splat_train_psnr": round(result.train_psnr, 2), "splat_holdout_psnr": round(result.holdout_psnr, 2),
+        **({"splat_camera_calibration": result.camera_calibration} if result.camera_calibration else {}),
     }
 
 

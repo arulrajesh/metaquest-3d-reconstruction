@@ -39,7 +39,10 @@ class SplatSettings:
     # photo-to-model flow showed a constant ~3 px left/right disagreement and a +0.4% radial scale. A dozen
     # parameters cannot overfit single views, and held-out views of the same camera share the calibration.
     # gsplat has no gradient for Ks, so the intrinsic part is a differentiable zoom/shift of the render.
-    camera_opt: bool = False
+    # On by default: held-out PSNR at native res 31.14 -> 31.72 dB, fine detail 21 -> 23% (recapture, 15k it).
+    # It learned both cameras pitched ~+0.17 deg against the headset's lens offsets and the right principal
+    # point ~1.7 px off; the radial scale stayed ~0 (-0.04%) relative to the left camera.
+    camera_opt: bool = True
     camera_opt_lr: float = 1e-4  # rotation (rad) and translation (m)
     camera_intrinsics_lr: float = 2e-5  # log focal and principal point / focal
     camera_opt_start: int = 1000  # let the geometry form first
@@ -47,8 +50,9 @@ class SplatSettings:
     # synthetic test, so by default only the rotation and the intrinsics are refined.
     camera_opt_translation: bool = False
     # A zoom shared by all cameras is barely observable (it drifted +1.2% on the synthetic test while the
-    # relative error was recovered exactly); set a camera index here to keep its intrinsics as the reference.
-    camera_intrinsics_reference: int | None = None
+    # relative error was recovered exactly), so the left camera's intrinsics stay as the reference (on the
+    # recapture: 31.72 dB pinned vs 31.70 dB free; with rig translation 31.57 dB). None frees them all.
+    camera_intrinsics_reference: int | None = 0
     # Densification (splitting/cloning, which grows the splat count) stops here; None = 75% of iterations,
     # capped at 5250. Training past it refines the existing splats without adding more (file size, headset
     # frame rate). Real recapture, holdout PSNR / splats: 7k iterations 29.7 dB / 878k; 15k with densification
