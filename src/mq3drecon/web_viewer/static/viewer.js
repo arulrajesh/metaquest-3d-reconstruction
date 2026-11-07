@@ -49,6 +49,13 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.xr.enabled = true;
 renderer.xr.setReferenceSpaceType('local-floor');
+// Sharpness in the headset: three.js defaults to the strongest fixed foveation (periphery at low resolution),
+// and the Quest browser's default WebXR framebuffer is below the panel's native resolution (~1.25x).
+// ?fov=0..1 sets foveation (default 0 = full resolution everywhere); ?scale= the framebuffer scale (default 1).
+const xrFoveation = Math.min(Math.max(Number(params.get('fov') ?? 0) || 0, 0), 1);
+const xrScale = Math.min(Math.max(Number(params.get('scale') ?? 1) || 1, 0.5), 2);
+renderer.xr.setFoveation(xrFoveation);
+renderer.xr.setFramebufferScaleFactor(xrScale);
 document.body.appendChild(renderer.domElement);
 document.body.appendChild(VRButton.createButton(renderer));
 
