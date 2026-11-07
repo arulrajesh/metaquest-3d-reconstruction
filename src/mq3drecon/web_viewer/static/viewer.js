@@ -104,6 +104,23 @@ function toggleRepresentation() {
   visual.scene.visible = !splat.visible;
 }
 
+// Space Setup room model (SketchUp-style walls, doors, furniture boxes), when the capture sent one:
+// R overlays it as a wireframe, e.g. to check that it lines up with the scan. Hidden by default.
+let roomModel = null;
+if (loc.assets.room_model) {
+  loader.loadAsync(base + loc.assets.room_model).then((gltf) => {
+    gltf.scene.traverse((node) => {
+      if (node.isMesh) node.material = new THREE.MeshBasicMaterial({ vertexColors: true, wireframe: true, transparent: true, opacity: 0.6 });
+    });
+    gltf.scene.visible = params.get('room') === '1';
+    roomModel = gltf.scene;
+    scene.add(roomModel);
+  }).catch((error) => console.warn('room model:', error));
+}
+function toggleRoomModel() {
+  if (roomModel) roomModel.visible = !roomModel.visible;
+}
+
 // The collider is invisible and double-sided: a scan is a single surface, so it blocks from both sides.
 // A BVH makes each ray cast ~0.05 ms instead of ~20 ms (100k triangles); walking casts several per frame.
 collider.scene.traverse((node) => {
@@ -403,6 +420,7 @@ function updateVignette(effort, dt) {
 const keys = new Set();
 window.addEventListener('keydown', (event) => {
   if (event.key === 'm' || event.key === 'M') toggleRepresentation();
+  if (event.key === 'r' || event.key === 'R') toggleRoomModel();
   keys.add(event.key.toLowerCase());
 });
 window.addEventListener('keyup', (event) => { keys.delete(event.key.toLowerCase()); });
