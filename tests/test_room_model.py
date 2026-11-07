@@ -113,5 +113,87 @@ def test_room_model_and_markers_travel_over_the_wire_and_into_the_session(tmp_pa
     controller.on_message(marker)
     controller.on_message(SessionEnd())
     session = tmp_path / "sessions" / "s1"
-    assert load_room_model(session) is not None and len(load_room_model(session).anchors) == len(room["anchors"])
+    model = load_room_model(session)
+    assert model is not None and model.source_version == 1 and len(model.regions) == 1 and len(model.openings) == 1
     assert json.loads((session / "markers.json").read_text()) == [{"kind": "detail", "start_us": 10, "end_us": 2_000_010}]
+
+
+
+# ---------------------------------------------------------------- schema v2: regions with their own floor and ceiling
+
+def _v2(regions, vertices, openings=(), boxes=()):
+    return parse_room_model({"version": 2, "vertices": vertices, "regions": regions, "openings": list(openings), "boxes": list(boxes)})
+
+
+def _kind_area(parts, kind):
+    return sum(_area(p) for p in parts if p.kind == kind)
+
+
+SQUARE = [[0, 0], [4, 0], [4, 4], [0, 4]]  # 4 x 4 m room, Unity plan (x, z)
+
+
+def test_false_ceiling_over_half_the_room_makes_a_bulkhead():
+    vertices = [[0, 0], [2, 0], [4, 0], [4, 4], [2, 4], [0, 4]]
+    model = _v2([
+        {"loop": [0, 1, 4, 5], "floor": {"y": 0}, "ceiling": {"y": 2.7}},
+        {"loop": [1, 2, 3, 4], "floor": {"y": 0}, "ceiling": {"y": 2.4}},  # false ceiling 30 cm lower
+    ], vertices)
+    parts = build_room_geometry(model)
+    assert math.isclose(_kind_area(parts, "bulkhead"), 4 * 0.3, rel_tol=1e-6)  # along the shared 4 m edge
+    # walls follow each region's own ceiling: x=0 side 4 x 2.7, x=4 side 4 x 2.4, front/back halves 2 x 2.7 + 2 x 2.4
+    assert math.isclose(_kind_area(parts, "wall"), 4 * 2.7 + 4 * 2.4 + 2 * (2 * 2.7 + 2 * 2.4), rel_tol=1e-6)
+    assert math.isclose(_kind_area(parts, "ceiling"), 16.0, rel_tol=1e-6) and _kind_area(parts, "step") == 0
+
+
+def test_beam_is_a_ceiling_strip_pushed_down_with_two_sides():
+    # beam 0.3 m wide across the room at z = 2, 0.25 m deep
+    vertices = [[0, 0], [4, 0], [4, 1.85], [4, 2.15], [4, 4], [0, 4], [0, 2.15], [0, 1.85]]
+    model = _v2([
+        {"loop": [0, 1, 2, 7], "floor": {"y": 0}, "ceiling": {"y": 2.6}},
+        {"loop": [7, 2, 3, 6], "floor": {"y": 0}, "ceiling": {"y": 2.35}},  # the beam
+        {"loop": [6, 3, 4, 5], "floor": {"y": 0}, "ceiling": {"y": 2.6}},
+    ], vertices)
+    parts = build_room_geometry(model)
+    bulkheads = [p for p in parts if p.kind == "bulkhead"]
+    assert len(bulkheads) == 2 and math.isclose(_kind_area(parts, "bulkhead"), 2 * 4 * 0.25, rel_tol=1e-6)
+    assert math.isclose(_kind_area(parts, "floor"), 16.0, rel_tol=1e-6)
+
+
+def test_sunken_area_gets_a_step_riser_and_its_walls_go_down_with_it():
+    vertices = [[0, 0], [4, 0], [4, 1], [4, 4], [0, 4], [0, 1]]
+    model = _v2([
+        {"loop": [0, 1, 2, 5], "floor": {"y": -0.17}, "ceiling": {"y": 2.5}},  # one step down
+        {"loop": [5, 2, 3, 4], "floor": {"y": 0.0}, "ceiling": {"y": 2.5}},
+    ], vertices)
+    parts = build_room_geometry(model)
+    assert math.isclose(_kind_area(parts, "step"), 4 * 0.17, rel_tol=1e-6)
+    sunken_wall = max((p for p in parts if p.kind == "wall"), key=lambda p: -p.vertices[:, 1].min())
+    assert math.isclose(sunken_wall.vertices[:, 1].min(), -0.17, abs_tol=1e-9)
+
+
+def test_pillar_is_a_solid_region_with_four_walls_and_a_hole_in_the_floor():
+    vertices = SQUARE + [[1.8, 1.8], [2.2, 1.8], [2.2, 2.2], [1.8, 2.2]]
+    model = _v2([
+        {"loop": [0, 1, 2, 3], "holes": [[4, 5, 6, 7]], "floor": {"y": 0}, "ceiling": {"y": 2.5}},
+        {"loop": [4, 5, 6, 7], "solid": True, "floor": {"y": 0}, "ceiling": {"y": 2.5}},
+    ], vertices)
+    parts = build_room_geometry(model)
+    assert len([p for p in parts if p.kind == "wall"]) == 8  # 4 room walls + 4 pillar faces
+    assert math.isclose(_kind_area(parts, "wall"), 4 * 4 * 2.5 + 4 * 0.4 * 2.5, rel_tol=1e-6)
+    assert math.isclose(_kind_area(parts, "floor"), 16.0 - 0.16, rel_tol=1e-6)
+
+
+def test_sloped_ceiling_makes_trapezoid_walls():
+    model = _v2([{"loop": [0, 1, 2, 3], "floor": {"y": 0}, "ceiling": {"y": 2.0, "ref": [0, 0], "slope": [0.25, 0.0]}}], SQUARE)
+    parts = build_room_geometry(model)
+    # ceiling rises from 2.0 m at x=0 to 3.0 m at x=4: walls 2x(4*2.5 trapezoid) + 4*2.0 + 4*3.0
+    assert math.isclose(_kind_area(parts, "wall"), 2 * 4 * 2.5 + 4 * 2.0 + 4 * 3.0, rel_tol=1e-6)
+
+
+def test_v2_entrance_spawn_uses_its_region_floor():
+    model = _v2([{"loop": [0, 1, 2, 3], "floor": {"y": -0.17}, "ceiling": {"y": 2.5}}], SQUARE,
+                openings=[{"edge": [0, 1], "offset": 1.5, "width": 0.9, "sill": 0, "height": 2.0, "kind": "door", "entrance": True}])
+    (x, y, z), yaw = entrance_spawn(model)
+    assert math.isclose(x, 1.95) and math.isclose(y, -0.17) and math.isclose(z, -0.6)  # world z = -(unity z 0.6)
+    parts = build_room_geometry(model)
+    assert math.isclose(_kind_area(parts, "wall"), 4 * 4 * (2.5 + 0.17) - 0.9 * 2.0, rel_tol=1e-6)  # walls 2.67 m tall
