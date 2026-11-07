@@ -18,6 +18,44 @@ Last updated: 2026-11-07
 
 ## Current state (read first)
 
+- **First fidelity capture (2026-11-07 21:59, `sessions/20261107_215947`, `_full` kept): 62 s.**
+  - Capture: 5.5 color frames/s per eye (up to ~14 while moving; the 15 pairs/s cap is the limit now, not the encoder) and 0 headset drops.
+  - Head speed p50 16°/s, against 24 before; 17% of frames above 25°/s, against 47%. The slow-down cue works.
+  - The room was darker (brightness 61 vs 80), so sharpness did not improve.
+  - Location `20261107_215947`: **half-res holdout 34.47 dB**, against 31.97 for the 11-07 capture through the same pipeline, with only 295 views. The scenes differ, so it is not a strict A/B.
+  - Learned camera pitch was only 0.04° this time (0.15° on 11-07), so the calibration offsets vary per session.
+  - **User feedback on that app:**
+    - the 5 cm voxel squares "fully fill up your field of view and the scan starts lagging";
+    - Hyperscape's grid of translucent triangles is far less obtrusive;
+    - Hyperscape maps room corners and major furniture first, then asks for a second pass close to objects while the grid disappears as detail is captured; walls and objects are outlined;
+    - the user wants to select room vertices manually, pick the door, and have a mini model at the bottom of the view (like iRhino/RoomPlan) to see coverage toward a basic SketchUp-like model;
+    - they asked how to handle crown moulding, and to implement what FUTURE.md allows now.
+- **Headset app, room guide (fork `d5f011b`, built), plus a second build with the rest (in progress):**
+  - **Room loading.** MRUK loads the Space Setup room, running Space Setup first if there is none.
+  - **Coverage grid.** The global mesh is drawn as a faint barycentric wireframe with a depth prepass. A compute kernel tests each vertex against each counted depth frame (slow head, new viewpoint). A vertex counts as captured with 6 sharp views, one as close as a standing visitor can get: 0.8 m near eye height, otherwise its vertical distance from a 1.6 m eye (ceiling, crown moulding, floor). Its grid then fades out.
+  - **Outlines.** Walls, floor and ceiling, furniture boxes, and doors (blue; entrance green) are outlined.
+  - **HUD.** It shows room % plus the three least-captured objects, and renders on top.
+  - **Controls:**
+    - Y opens Space Setup to trace walls and add doors, windows and furniture by hand, then reloads (not while recording);
+    - right trigger at a door sets the entrance;
+    - A = "detail here", 2 s with the motion gate off; the laptop keeps every frame in that window;
+    - B hides or shows the mini model.
+  - **Mini model.** A room-aligned miniature 0.55 m ahead and 0.30 m below the eyes, tilted, with an operator arrow. Elements are tinted by captured fraction.
+  - **Voxel dots off by default.**
+- **Laptop side** (`28fd45c`, `7d4fb50`, `eb90146`):
+  - **Protocol:** `ROOM_MODEL` (8; JSON in the payload, re-sent on every connection) and `MARKER` (9, kind "detail"). C#↔Python wire cross-check updated.
+  - **Receiver:** stores `room_model.json` (also when sent before recording) and `markers.json`. Compaction keeps detail windows and copies both files.
+  - **Build:** `room_model.glb/.obj/.mtl/.dae` with walls cut by door and window openings, floor/ceiling outlines (ear clipping), door/window panels and furniture boxes, as named groups.
+    - Space Setup's floor is used when it agrees with the scan to 15 cm; this doubles as the frame check.
+    - The spawn moves 0.6 m inside the entrance, facing in.
+    - Gallery cards link to the .dae/.obj/.glb downloads.
+  - **Receiver restarted on the new protocol** (idle; `--config ~/MQ3DRecon/live_fidelity.yaml`).
+- **FUTURE.md triage (user request).**
+  - Done now: room layout via Space Setup, entrance pick (pointing), "detail here" (force keyframe), dollhouse mini model, closure % per object.
+  - Next without downloads: "where next?" arrow to the largest uncovered area, a wrap-up panel, and battery/thermal on the HUD.
+  - Needs downloads or permission: YOLO/SAM object intelligence, and Whisper/LLM voice narration (audio streaming).
+- **Untested on the headset:** everything above. First check that the room grid lines up with the real walls, since the depth-pose and MRUK frames are assumed identical.
+
 - **Direction changed (user, 2026-11-07): fidelity first; live updating dropped** (`PLAN.md` §1b, M7).
   - In the headset, ours (SH3) and Spirula (SH3) were "both similar and equally bad". Hyperscape Capture is "amazing".
   - The user's hypothesis: too little detail is captured because there is too little feedback while capturing.
