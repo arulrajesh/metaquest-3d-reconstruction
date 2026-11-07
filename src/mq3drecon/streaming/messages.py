@@ -8,6 +8,8 @@ are milliseconds (``timestamp_ms``), and poses are Unity camera-to-world.
 
 from __future__ import annotations
 
+import json
+
 from dataclasses import dataclass, field
 from enum import IntEnum
 from typing import Any, Union
@@ -214,8 +216,8 @@ def encode_message(message: Message) -> bytes:
         return encode_frame(MessageType.SESSION_END, {"reason": message.reason, "dropped": message.dropped})
     if isinstance(message, Bye):
         return encode_frame(MessageType.BYE, {"reason": message.reason})
-    if isinstance(message, RoomModelUpdate):
-        return encode_frame(MessageType.ROOM_MODEL, dict(message.room))
+    if isinstance(message, RoomModelUpdate):  # JSON in the payload: a large room can exceed the 64 KB header limit
+        return encode_frame(MessageType.ROOM_MODEL, {"encoding": "json"}, json.dumps(message.room).encode("utf-8"))
     if isinstance(message, Marker):
         return encode_frame(MessageType.MARKER, {**message.data, "kind": message.kind})
     from mq3drecon.streaming.feedback import KeyframeNotice, LiveStatusUpdate, SurfaceMesh
@@ -253,7 +255,7 @@ def decode_message(raw: RawMessage) -> Message:
         if message_type == MessageType.BYE:
             return Bye(reason=str(h.get("reason", "closing")))
         if message_type == MessageType.ROOM_MODEL:
-            return RoomModelUpdate(room=dict(h))
+            return RoomModelUpdate(room=json.loads(raw.payload.decode("utf-8")) if raw.payload else dict(h))
         if message_type == MessageType.MARKER:
             data = dict(h)
             return Marker(kind=str(data.pop("kind")), data=data)
