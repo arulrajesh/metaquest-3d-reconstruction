@@ -30,6 +30,7 @@ class BakeView:
     intrinsic: np.ndarray  # (3, 3)
     world_to_camera: np.ndarray  # (4, 4)
     sharpness: float = 1.0
+    camera: int = 0  # physical camera (0 left, 1 right): views of one camera share its calibration refinement
 
 
 @dataclass(frozen=True)

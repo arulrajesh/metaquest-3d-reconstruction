@@ -58,7 +58,8 @@ def iter_bake_views(project_dir: Path, *, max_views: int = 400, downscale: int =
             intrinsic = intrinsic.astype(np.float64).copy()
             intrinsic[0, :] *= sw / w
             intrinsic[1, :] *= sh / h
-        yield BakeView(rgb, intrinsic, image.view.world_to_camera, image_sharpness(gray))
+        camera = 1 if getattr(frame.side, "value", frame.side) == "right" else 0
+        yield BakeView(rgb, intrinsic, image.view.world_to_camera, image_sharpness(gray), camera)
 
 
 def build_textured_visual(

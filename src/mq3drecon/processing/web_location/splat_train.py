@@ -34,6 +34,21 @@ class SplatSettings:
     pose_opt_lr: float = 5e-5
     exposure_opt: bool = False  # learn a per-view RGB gain and bias applied to the render
     exposure_opt_lr: float = 1e-3
+    # Per-camera calibration refinement, shared by every view of one physical camera (BakeView.camera: left 0,
+    # right 1): a rigid SE(3) offset plus focal length (x, y) and principal point. Real recapture 2026-11-07:
+    # photo-to-model flow showed a constant ~3 px left/right disagreement and a +0.4% radial scale. A dozen
+    # parameters cannot overfit single views, and held-out views of the same camera share the calibration.
+    # gsplat has no gradient for Ks, so the intrinsic part is a differentiable zoom/shift of the render.
+    camera_opt: bool = False
+    camera_opt_lr: float = 1e-4  # rotation (rad) and translation (m)
+    camera_intrinsics_lr: float = 2e-5  # log focal and principal point / focal
+    camera_opt_start: int = 1000  # let the geometry form first
+    # Rig translation (mm-scale) trades off against focal length (dolly vs zoom) and drifted 9 mm on the
+    # synthetic test, so by default only the rotation and the intrinsics are refined.
+    camera_opt_translation: bool = False
+    # A zoom shared by all cameras is barely observable (it drifted +1.2% on the synthetic test while the
+    # relative error was recovered exactly); set a camera index here to keep its intrinsics as the reference.
+    camera_intrinsics_reference: int | None = None
     # Densification (splitting/cloning, which grows the splat count) stops here; None = 75% of iterations,
     # capped at 5250. Training past it refines the existing splats without adding more (file size, headset
     # frame rate). Real recapture, holdout PSNR / splats: 7k iterations 29.7 dB / 878k; 15k with densification
@@ -61,6 +76,8 @@ class SplatResult:
     holdout_psnr: float
     seconds: float
     sh: np.ndarray | None = None  # (N, K, 3) SH coefficients, DC first (K = (degree + 1)^2), for view-dependent export
+    # camera_opt only: per camera, rotation (deg, axis-angle), translation (mm), focal scale x/y (%), principal point (px)
+    camera_calibration: list[dict] | None = None
 
 
 def _ssim(a, b):
@@ -182,21 +199,57 @@ def train_splats(
         extra_optimizers.append(torch.optim.Adam([pose_delta], lr=settings.pose_opt_lr))
     if settings.exposure_opt:
         extra_optimizers.append(torch.optim.Adam([exposure], lr=settings.exposure_opt_lr))
+    camera_of_view = [int(getattr(view, "camera", 0)) for view in views]
+    n_cameras = max(camera_of_view) + 1
+    camera_delta = torch.zeros((n_cameras, 6), dtype=torch.float32, device=device, requires_grad=True)  # rig offset
+    camera_k = torch.zeros((n_cameras, 4), dtype=torch.float32, device=device, requires_grad=True)  # dlog fx, fy; dcx/fx, dcy/fy
+    camera_optimizers = []
+    if settings.camera_opt:
+        camera_optimizers = [torch.optim.Adam([camera_delta], lr=settings.camera_opt_lr),
+                             torch.optim.Adam([camera_k], lr=settings.camera_intrinsics_lr)]
 
-    def corrected_viewmat(index: int):
-        viewmat = viewmats_t[index]
-        if not settings.pose_opt:
-            return viewmat
-        omega, translation = pose_delta[index, :3], pose_delta[index, 3:]
-        skew = torch.zeros((3, 3), dtype=viewmat.dtype, device=viewmat.device)
+    def inverse_se3(delta):
+        """6-vector (axis-angle, translation) D -> D^-1. camera_to_world' = camera_to_world @ D."""
+        omega, translation = delta[:3], delta[3:]
+        skew = torch.zeros((3, 3), dtype=delta.dtype, device=delta.device)
         skew[0, 1], skew[0, 2], skew[1, 2] = -omega[2], omega[1], -omega[0]
         skew[1, 0], skew[2, 0], skew[2, 1] = omega[2], -omega[1], omega[0]
         rotation = torch.linalg.matrix_exp(skew)
-        # camera_to_world' = camera_to_world @ D, so world_to_camera' = D^-1 @ world_to_camera.
-        inverse_delta = torch.eye(4, dtype=viewmat.dtype, device=viewmat.device)
+        inverse_delta = torch.eye(4, dtype=delta.dtype, device=delta.device)
         inverse_delta[:3, :3] = rotation.T
         inverse_delta[:3, 3] = -rotation.T @ translation
-        return inverse_delta @ viewmat
+        return inverse_delta
+
+    def corrected_viewmat(index: int):
+        viewmat = viewmats_t[index]
+        if settings.camera_opt:
+            delta = camera_delta[camera_of_view[index]]
+            if not settings.camera_opt_translation:
+                delta = torch.cat([delta[:3], torch.zeros_like(delta[3:])])
+            viewmat = inverse_se3(delta) @ viewmat
+        if settings.pose_opt:
+            viewmat = inverse_se3(pose_delta[index]) @ viewmat
+        return viewmat
+
+    def apply_intrinsics(image, index: int, k):
+        """Render with K, then resample as if rendered with the camera's refined fx, fy, cx, cy (tiny zoom + shift)."""
+        import torch.nn.functional as F
+
+        h, w = image.shape[:2]
+        d = camera_k[camera_of_view[index]]
+        fx, fy, cx, cy = k[0, 0, 0], k[0, 1, 1], k[0, 0, 2], k[0, 1, 2]
+        # output pixel u' looks along the ray of input pixel u = cx + (u' - cx') * fx / fx'
+        sx, sy = torch.exp(-d[0]), torch.exp(-d[1])
+        cxn, cyn = (2 * cx + 1) / w - 1, (2 * cy + 1) / h - 1
+        dcxn, dcyn = 2 * d[2] * fx / w, 2 * d[3] * fy / h
+        zero = torch.zeros((), device=image.device)
+        theta = torch.stack([
+            torch.stack([sx, zero, cxn - (cxn + dcxn) * sx]),
+            torch.stack([zero, sy, cyn - (cyn + dcyn) * sy]),
+        ])[None]
+        grid = F.affine_grid(theta, [1, 3, h, w], align_corners=False)
+        warped = F.grid_sample(image.permute(2, 0, 1)[None], grid, mode="bilinear", padding_mode="border", align_corners=False)
+        return warped[0].permute(1, 2, 0)
 
     full_h, full_w = views[0].rgb.shape[:2]
 
@@ -214,6 +267,8 @@ def train_splats(
             sh_degree=sh_degree, packed=False, absgrad=settings.absgrad and not use_mcmc,
         )
         image = out[0]
+        if corrected and settings.camera_opt:
+            image = apply_intrinsics(image, index, k)
         if corrected and settings.exposure_opt:
             image = image * (1.0 + exposure[index, :3]) + exposure[index, 3:]
         return image.clamp(0.0, 1.0), info
@@ -232,6 +287,12 @@ def train_splats(
         loss.backward()
         for optimizer in [*optimizers.values(), *extra_optimizers]:
             optimizer.step()
+            optimizer.zero_grad(set_to_none=True)
+        if camera_optimizers and settings.camera_intrinsics_reference is not None and camera_k.grad is not None:
+            camera_k.grad[settings.camera_intrinsics_reference] = 0.0
+        for optimizer in camera_optimizers:
+            if step >= settings.camera_opt_start:
+                optimizer.step()
             optimizer.zero_grad(set_to_none=True)
         means_decay.step()
         if use_mcmc:
@@ -253,6 +314,19 @@ def train_splats(
         keep = opacity > 0.005
         sh0 = params["sh0"][:, 0, :].cpu().numpy()
         sh_all = torch.cat([params["sh0"], params["shN"]], dim=1).cpu().numpy()
+        calibration = None
+        if settings.camera_opt:
+            calibration = []
+            for camera in range(n_cameras):
+                delta, dk = camera_delta[camera].cpu().numpy(), camera_k[camera].cpu().numpy()
+                first = camera_of_view.index(camera) if camera in camera_of_view else 0
+                fx, fy = views[first].intrinsic[0, 0], views[first].intrinsic[1, 1]
+                calibration.append({
+                    "rotation_deg": [round(float(math.degrees(v)), 4) for v in delta[:3]],
+                    "translation_mm": [round(float(v * 1000), 2) for v in delta[3:]],
+                    "focal_scale_pct": [round(float(math.expm1(v) * 100), 3) for v in dk[:2]],
+                    "principal_point_px": [round(float(dk[2] * fx), 2), round(float(dk[3] * fy), 2)],
+                })
         return SplatResult(
             means=params["means"].cpu().numpy()[keep],
             scales=torch.exp(params["scales"]).cpu().numpy()[keep],
@@ -263,4 +337,5 @@ def train_splats(
             holdout_psnr=holdout_psnr,
             seconds=time.time() - start,
             sh=sh_all[keep],
+            camera_calibration=calibration,
         )
